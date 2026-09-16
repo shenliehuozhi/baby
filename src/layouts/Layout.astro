@@ -1,0 +1,20 @@
+---
+interface Props {
+  title: string;
+}
+
+const { title } = Astro.props;
+---
+
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>{title}</title>
+  </head>
+  <body class="bg-amber-50/50 min-h-screen text-gray-800 antialiased">
+    <!-- 关键的 slot 标签：用来接收 index.astro 里的所有内容 -->
+    <slot />
+  </body>
+</html>

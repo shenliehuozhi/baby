@@ -1,0 +1,285 @@
+---
+import Layout from '../layouts/Layout.astro';
+import artworks from '../data/artworks.json';
+---
+
+<Layout title="宝宝的线上美术馆 🎨">
+  <main class="gallery-container">
+    <!-- 头部标语 -->
+    <header class="header">
+      <h1>✨ 宝宝的小小美术馆 ✨</h1>
+      <p>记录童年的异想天开，把每一道色彩变成永恒。</p>
+    </header>
+
+    <!-- 画作展厅容器（自动居中排列） -->
+    <div class="grid">
+      {artworks.map((art) => (
+        <div class="card">
+          <!-- 图片展示区（点击可放大） -->
+          <div class="image-wrapper" data-img={art.image} title="点击查看大图">
+            <img src={art.image} alt={art.title} loading="lazy" />
+            <span class="age-badge">{art.age}</span>
+            <div class="zoom-tip">🔍 点击放大</div>
+          </div>
+
+          <!-- 文字故事区 -->
+          <div class="card-content">
+            <div class="card-header">
+              <h2>{art.title}</h2>
+              <span class="date">{art.date}</span>
+            </div>
+            <p class="story">"{art.story}"</p>
+          </div>
+        </div>
+      ))}
+    </div>
+
+    <!-- 底部版权 -->
+    <footer>
+      <p>© {new Date().getFullYear()} - Made with ❤️ for our little artist</p>
+    </footer>
+  </main>
+
+  <!-- 全屏放大灯箱 (Lightbox) 弹窗 -->
+  <div id="lightbox" class="lightbox-overlay">
+    <span class="close-btn">&times;</span>
+    <img id="lightbox-img" src="" alt="放大图" />
+    <div class="lightbox-hint">点击任意处或右上角关闭</div>
+  </div>
+</Layout>
+
+<style>
+  /* 整体页面配置 */
+  .gallery-container {
+    width: 100%;
+    margin: 0 auto;
+    padding: 40px 20px;
+    background-color: #fffbf5;
+    min-height: 100vh;
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+    box-sizing: border-box;
+  }
+
+  .header {
+    text-align: center;
+    margin-bottom: 40px;
+  }
+
+  .header h1 {
+    font-size: 2.4rem;
+    color: #78350f;
+    margin-bottom: 8px;
+  }
+
+  .header p {
+    color: #b45309;
+    font-size: 1rem;
+  }
+
+  /* 核心修改：使用 Flexbox 居中布局，画作少时自动居中，多时自动换行铺开 */
+  .grid {
+    display: flex;
+    flex-wrap: wrap;
+    justify-content: center;
+    gap: 30px;
+    max-width: 1400px;
+    margin: 0 auto;
+  }
+
+  /* 卡片样式：设置合适的自适应宽度 */
+  .card {
+    flex: 1 1 340px;
+    max-width: 420px;
+    background: white;
+    border-radius: 18px;
+    overflow: hidden;
+    box-shadow: 0 4px 16px rgba(0, 0, 0, 0.05);
+    border: 1px solid #fef3c7;
+    display: flex;
+    flex-direction: column;
+    transition: transform 0.2s ease, box-shadow 0.2s ease;
+  }
+
+  .card:hover {
+    transform: translateY(-4px);
+    box-shadow: 0 10px 24px rgba(0, 0, 0, 0.08);
+  }
+
+  /* 图片外层容器 */
+  .image-wrapper {
+    background: #fdf6e9;
+    height: 240px;
+    position: relative;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    overflow: hidden;
+    padding: 12px;
+    cursor: zoom-in;
+  }
+
+  .image-wrapper img {
+    max-height: 100%;
+    max-width: 100%;
+    object-fit: contain;
+    transition: transform 0.3s ease;
+  }
+
+  .card:hover .image-wrapper img {
+    transform: scale(1.03);
+  }
+
+  /* 悬停提示“点击放大” */
+  .zoom-tip {
+    position: absolute;
+    top: 10px;
+    left: 10px;
+    background: rgba(0, 0, 0, 0.6);
+    color: white;
+    font-size: 0.75rem;
+    padding: 3px 8px;
+    border-radius: 20px;
+    opacity: 0;
+    transition: opacity 0.3s ease;
+    backdrop-filter: blur(4px);
+  }
+
+  .image-wrapper:hover .zoom-tip {
+    opacity: 1;
+  }
+
+  /* 年龄标签 */
+  .age-badge {
+    position: absolute;
+    bottom: 12px;
+    right: 12px;
+    background: rgba(0, 0, 0, 0.6);
+    color: white;
+    font-size: 0.75rem;
+    padding: 3px 8px;
+    border-radius: 20px;
+    backdrop-filter: blur(4px);
+  }
+
+  /* 文字区域 */
+  .card-content {
+    padding: 18px;
+    display: flex;
+    flex-direction: column;
+    justify-content: space-between;
+    flex: 1;
+  }
+
+  .card-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 10px;
+  }
+
+  .card-header h2 {
+    font-size: 1.15rem;
+    font-weight: bold;
+    color: #1f2937;
+    margin: 0;
+  }
+
+  .date {
+    font-size: 0.8rem;
+    color: #9ca3af;
+  }
+
+  .story {
+    color: #4b5563;
+    font-size: 0.875rem;
+    line-height: 1.5;
+    background: #fffbeb;
+    padding: 10px 12px;
+    border-radius: 8px;
+    border: 1px solid #fef3c7;
+    margin: 0;
+  }
+
+  footer {
+    text-align: center;
+    margin-top: 50px;
+    color: #b45309;
+    font-size: 0.85rem;
+  }
+
+  /* ----------------- 全屏放大灯箱 (Lightbox) 样式 ----------------- */
+  .lightbox-overlay {
+    display: none;
+    position: fixed;
+    z-index: 1000;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    background-color: rgba(0, 0, 0, 0.85);
+    backdrop-filter: blur(6px);
+    justify-content: center;
+    align-items: center;
+    flex-direction: column;
+    cursor: zoom-out;
+  }
+
+  .lightbox-overlay.active {
+    display: flex;
+  }
+
+  .lightbox-overlay img {
+    max-width: 90%;
+    max-height: 85vh;
+    object-fit: contain;
+    border-radius: 8px;
+    box-shadow: 0 10px 30px rgba(0,0,0,0.5);
+  }
+
+  .close-btn {
+    position: absolute;
+    top: 25px;
+    right: 35px;
+    color: #fff;
+    font-size: 40px;
+    font-weight: bold;
+    cursor: pointer;
+    transition: color 0.2s;
+  }
+
+  .close-btn:hover {
+    color: #f59e0b;
+  }
+
+  .lightbox-hint {
+    color: rgba(255, 255, 255, 0.6);
+    font-size: 0.85rem;
+    margin-top: 15px;
+  }
+</style>
+
+<script>
+  // 点击图片弹出大图交互逻辑
+  document.addEventListener('DOMContentLoaded', () => {
+    const wrappers = document.querySelectorAll('.image-wrapper');
+    const lightbox = document.getElementById('lightbox');
+    const lightboxImg = document.getElementById('lightbox-img') as HTMLImageElement;
+
+    wrappers.forEach(wrapper => {
+      wrapper.addEventListener('click', () => {
+        const imgSrc = wrapper.getAttribute('data-img');
+        if (imgSrc && lightbox && lightboxImg) {
+          lightboxImg.src = imgSrc;
+          lightbox.classList.add('active');
+        }
+      });
+    });
+
+    // 点击弹窗任意地方关闭
+    if (lightbox) {
+      lightbox.addEventListener('click', () => {
+        lightbox.classList.remove('active');
+      });
+    }
+  });
+</script>
