@@ -3,11 +3,11 @@ import Layout from '../layouts/Layout.astro';
 import artworks from '../data/artworks.json';
 ---
 
-<Layout title="宝宝的线上美术馆 🎨">
+<Layout title="七叶童画成林 🎨">
   <main class="gallery-container">
     <!-- 头部标语 -->
     <header class="header">
-      <h1>✨ 宝宝的小小美术馆 ✨</h1>
+      <h1>✨ 七叶童画成林 ✨</h1>
       <p>记录童年的异想天开，把每一道色彩变成永恒。</p>
     </header>
 
@@ -47,8 +47,8 @@ import artworks from '../data/artworks.json';
     <button class="lightbox-next" title="下一张 (→)">&#10095;</button>
 
     <div class="lightbox-container" id="lightbox-container">
-      <!-- 图片展示区 -->
-      <div class="lightbox-img-wrapper">
+      <!-- 图片展示区（支持左右滑动切换） -->
+      <div class="lightbox-img-wrapper" id="lightbox-img-wrapper">
         <img id="lightbox-img" src="" alt="放大图" />
       </div>
 
@@ -244,7 +244,7 @@ import artworks from '../data/artworks.json';
     display: flex;
   }
 
-  /* 默认（移动端/小屏幕）：上下垂直结构，确保铺满且不挤压 */
+  /* 默认（移动端/小屏幕）：上下垂直结构 */
   .lightbox-container {
     display: flex;
     flex-direction: column;
@@ -266,6 +266,7 @@ import artworks from '../data/artworks.json';
     justify-content: center;
     padding: 15px;
     overflow: hidden;
+    touch-action: pan-y; /* 允许纵向滚动，优化横向滑动体验 */
   }
 
   #lightbox-img {
@@ -273,6 +274,8 @@ import artworks from '../data/artworks.json';
     max-height: 100%;
     object-fit: contain;
     border-radius: 6px;
+    user-select: none;
+    pointer-events: none;
   }
 
   .lightbox-details {
@@ -359,7 +362,7 @@ import artworks from '../data/artworks.json';
     100% { opacity: 1; }
   }
 
-  /* 关闭与切换控制按钮（移动端适配位置） */
+  /* 关闭与切换控制按钮 */
   .lightbox-close, .lightbox-prev, .lightbox-next {
     position: absolute;
     background: rgba(0, 0, 0, 0.5);
@@ -389,7 +392,7 @@ import artworks from '../data/artworks.json';
   }
 
   .lightbox-prev, .lightbox-next {
-    top: 28%; /* 居于上方图片区域的中部 */
+    top: 28%;
     transform: translateY(-50%);
     width: 42px;
     height: 42px;
@@ -400,7 +403,7 @@ import artworks from '../data/artworks.json';
   .lightbox-next { right: 10px; }
 
 
-  /* 🖥️ 电脑端大屏幕（>= 1024px）：恢复左右分栏结构与宽大尺寸 */
+  /* 🖥️ 电脑端大屏幕（>= 1024px）：左右分栏结构 */
   @media (min-width: 1024px) {
     .lightbox-container {
       flex-direction: row;
@@ -475,7 +478,7 @@ import artworks from '../data/artworks.json';
   }
 </style>
 
-<!-- ⚡ 交互逻辑脚本 -->
+<!-- ⚡ 交互逻辑脚本（包含触屏滑动与语音朗读） -->
 <script define:vars={{ artworks }}>
   let currentIndex = 0;
 
@@ -486,6 +489,7 @@ import artworks from '../data/artworks.json';
   const lightboxAge = document.getElementById('lightbox-age');
   const lightboxDesc = document.getElementById('lightbox-desc');
   const speakBtn = document.getElementById('speak-btn');
+  const imgWrapper = document.getElementById('lightbox-img-wrapper');
 
   const wrappers = document.querySelectorAll('.image-wrapper');
   const closeBtn = document.querySelector('.lightbox-close');
@@ -552,6 +556,35 @@ import artworks from '../data/artworks.json';
   prevBtn.addEventListener('click', showPrev);
   nextBtn.addEventListener('click', showNext);
 
+  // 📱 移动端左右滑动（Swipe）手势监听
+  let touchStartX = 0;
+  let touchEndX = 0;
+
+  imgWrapper.addEventListener('touchstart', (e) => {
+    touchStartX = e.changedTouches[0].screenX;
+  }, { passive: true });
+
+  imgWrapper.addEventListener('touchend', (e) => {
+    touchEndX = e.changedTouches[0].screenX;
+    handleSwipe();
+  }, { passive: true });
+
+  function handleSwipe() {
+    const swipeThreshold = 50; // 触发切换的最小滑动距离（像素）
+    const diff = touchEndX - touchStartX;
+
+    if (Math.abs(diff) > swipeThreshold) {
+      if (diff > 0) {
+        // 向右滑动 -> 上一张
+        showPrev();
+      } else {
+        // 向左滑动 -> 下一张
+        showNext();
+      }
+    }
+  }
+
+  // 键盘快捷键支持 (Esc关闭，左右方向键无缝切换)
   document.addEventListener('keydown', (e) => {
     if (lightbox.classList.contains('active')) {
       if (e.key === 'Escape') closeLightbox();
@@ -560,6 +593,7 @@ import artworks from '../data/artworks.json';
     }
   });
 
+  // 🔊 语音朗读核心逻辑
   speakBtn.addEventListener('click', () => {
     if (!('speechSynthesis' in window)) {
       alert('您的浏览器暂不支持语音朗读功能');
