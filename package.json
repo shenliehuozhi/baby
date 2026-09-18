@@ -10,6 +10,7 @@
     "build": "astro build",
     "preview": "astro preview",
     "astro": "astro",
+    "delete": "node delete-artwork.js",
     "sync": "node sync-and-process.js"
   },
   "dependencies": {
