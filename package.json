@@ -14,10 +14,15 @@
     "sync": "node sync-and-process.js"
   },
   "dependencies": {
+    "@capacitor/android": "^8.5.2",
+    "@capacitor/core": "^8.5.2",
     "astro": "^7.3.2",
     "sharp": "^0.35.4"
   },
   "allowScripts": {
     "esbuild": true
+  },
+  "devDependencies": {
+    "@capacitor/cli": "^8.5.2"
   }
 }
