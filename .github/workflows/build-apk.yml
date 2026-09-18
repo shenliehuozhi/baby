@@ -1,7 +1,7 @@
 name: Build Android APK
 
 on:
-  workflow_dispatch: # 👈 关键修改：只保留手动触发按钮，取消每次推送自动打包
+  workflow_dispatch: # 手动触发按钮
 
 jobs:
   build:
@@ -12,7 +12,7 @@ jobs:
     - name: Checkout code
       uses: actions/checkout@v4
 
-    # 2. 配置 Node.js 环境
+    # 2. 配置 Node.js 环境 (已更新为 Node 22)
     - name: Set up Node.js
       uses: actions/setup-node@v4
       with:
@@ -33,9 +33,11 @@ jobs:
         distribution: 'temurin'
         java-version: '17'
 
-    # 5. Setup Android SDK
+    # 5. 配置 Android SDK
     - name: Setup Android SDK
       uses: android-actions/setup-android@v3
+      with:
+        packages: 'platforms;android-34 build-tools;34.0.0 platform-tools'
 
     # 6. 赋予 gradlew 执行权限并编译 Debug 版 APK
     - name: Build APK with Gradle
