@@ -47,12 +47,12 @@ import artworks from '../data/artworks.json';
     <button class="lightbox-next" title="下一张 (→)">&#10095;</button>
 
     <div class="lightbox-container" id="lightbox-container">
-      <!-- 左侧：超大图展示（占满屏幕绝大部分空间） -->
+      <!-- 图片展示区 -->
       <div class="lightbox-img-wrapper">
         <img id="lightbox-img" src="" alt="放大图" />
       </div>
 
-      <!-- 右侧：详细信息展示（字体已调大，并带有语音朗读按钮） -->
+      <!-- 详细信息展示区 -->
       <div class="lightbox-details">
         <div class="lightbox-meta">
           <span id="lightbox-age" class="age-badge-tag"></span>
@@ -61,7 +61,7 @@ import artworks from '../data/artworks.json';
         <h2 id="lightbox-title"></h2>
         <p id="lightbox-desc" class="story"></p>
 
-        <!-- 🔊 语音朗读按钮（免插件、浏览器自带方案） -->
+        <!-- 🔊 语音朗读按钮 -->
         <button id="speak-btn" class="speak-btn" title="点击朗读故事">
           🔊 朗读故事
         </button>
@@ -223,7 +223,7 @@ import artworks from '../data/artworks.json';
     font-size: 0.85rem;
   }
 
-  /* ----------------- 全屏交互式 Lightbox 弹窗样式 ----------------- */
+  /* ----------------- 💡 响应式 Lightbox 弹窗样式（移动优先） ----------------- */
   .lightbox-overlay {
     display: none;
     position: fixed;
@@ -236,7 +236,7 @@ import artworks from '../data/artworks.json';
     backdrop-filter: blur(8px);
     justify-content: center;
     align-items: center;
-    padding: 20px;
+    padding: 12px;
     box-sizing: border-box;
   }
 
@@ -244,28 +244,27 @@ import artworks from '../data/artworks.json';
     display: flex;
   }
 
-  /* 弹窗主容器：屏幕 92% 级别 */
+  /* 默认（移动端/小屏幕）：上下垂直结构，确保铺满且不挤压 */
   .lightbox-container {
     display: flex;
-    width: 92vw;
-    height: 92vh;
-    max-width: none;
-    max-height: none;
+    flex-direction: column;
+    width: 95vw;
+    height: 94vh;
     background: #fffbf5;
-    border-radius: 20px;
+    border-radius: 16px;
     overflow: hidden;
-    box-shadow: 0 25px 60px rgba(0,0,0,0.7);
+    box-shadow: 0 20px 50px rgba(0,0,0,0.7);
     border: 1px solid #fef3c7;
+    position: relative;
   }
 
-  /* 左侧图片区域 */
   .lightbox-img-wrapper {
-    flex: 4;
+    flex: 1.4;
     background: #0d0d0d;
     display: flex;
     align-items: center;
     justify-content: center;
-    padding: 25px;
+    padding: 15px;
     overflow: hidden;
   }
 
@@ -273,17 +272,15 @@ import artworks from '../data/artworks.json';
     max-width: 100%;
     max-height: 100%;
     object-fit: contain;
-    border-radius: 8px;
+    border-radius: 6px;
   }
 
-  /* 右侧文字区域 */
   .lightbox-details {
-    flex: 1.1;
-    min-width: 320px;
-    padding: 45px;
+    flex: 1;
+    padding: 20px 24px;
     display: flex;
     flex-direction: column;
-    justify-content: center;
+    justify-content: flex-start;
     overflow-y: auto;
     background: #fff;
   }
@@ -292,36 +289,36 @@ import artworks from '../data/artworks.json';
     display: flex;
     justify-content: space-between;
     align-items: center;
-    margin-bottom: 20px;
+    margin-bottom: 12px;
   }
 
   .lightbox-details .age-badge-tag {
     background: #fef3c7;
     color: #b45309;
-    font-size: 0.95rem;
-    padding: 6px 14px;
+    font-size: 0.85rem;
+    padding: 4px 10px;
     border-radius: 20px;
     font-weight: 500;
   }
 
   .lightbox-details .date {
-    font-size: 0.95rem;
+    font-size: 0.85rem;
     color: #9ca3af;
   }
 
   #lightbox-title {
-    font-size: 2rem;
+    font-size: 1.35rem;
     color: #1f2937;
-    margin: 0 0 20px 0;
+    margin: 0 0 10px 0;
     line-height: 1.3;
   }
 
   .lightbox-details .story {
-    font-size: 1.15rem;
-    line-height: 1.75;
+    font-size: 1rem;
+    line-height: 1.6;
     background: #fffbeb;
-    padding: 16px 20px;
-    border-radius: 12px;
+    padding: 12px 14px;
+    border-radius: 10px;
     border: 1px solid #fef3c7;
     color: #4b5563;
     margin: 0;
@@ -329,22 +326,21 @@ import artworks from '../data/artworks.json';
 
   /* 🔊 语音朗读按钮样式 */
   .speak-btn {
-    margin-top: 24px;
+    margin-top: 15px;
     background-color: #fef3c7;
     color: #b45309;
     border: 1px solid #fde68a;
-    padding: 12px 20px;
-    border-radius: 25px;
-    font-size: 1rem;
+    padding: 10px 16px;
+    border-radius: 20px;
+    font-size: 0.95rem;
     font-weight: 600;
     cursor: pointer;
     display: flex;
     align-items: center;
     justify-content: center;
-    gap: 8px;
+    gap: 6px;
     transition: all 0.2s ease;
     width: fit-content;
-    box-shadow: 0 2px 8px rgba(0,0,0,0.05);
   }
 
   .speak-btn:hover {
@@ -363,10 +359,10 @@ import artworks from '../data/artworks.json';
     100% { opacity: 1; }
   }
 
-  /* 关闭与切换控制按钮 */
+  /* 关闭与切换控制按钮（移动端适配位置） */
   .lightbox-close, .lightbox-prev, .lightbox-next {
     position: absolute;
-    background: rgba(255, 255, 255, 0.2);
+    background: rgba(0, 0, 0, 0.5);
     color: white;
     border: none;
     cursor: pointer;
@@ -376,75 +372,110 @@ import artworks from '../data/artworks.json';
     justify-content: center;
     transition: background 0.2s, transform 0.2s;
     backdrop-filter: blur(4px);
+    z-index: 1010;
   }
 
   .lightbox-close:hover, .lightbox-prev:hover, .lightbox-next:hover {
-    background: rgba(255, 255, 255, 0.4);
+    background: rgba(0, 0, 0, 0.7);
     transform: scale(1.05);
   }
 
   .lightbox-close {
-    top: 25px;
-    right: 35px;
-    width: 45px;
-    height: 45px;
-    font-size: 30px;
-    z-index: 1010;
+    top: 15px;
+    right: 15px;
+    width: 38px;
+    height: 38px;
+    font-size: 24px;
   }
 
   .lightbox-prev, .lightbox-next {
-    top: 50%;
+    top: 28%; /* 居于上方图片区域的中部 */
     transform: translateY(-50%);
-    width: 55px;
-    height: 55px;
-    font-size: 24px;
-    z-index: 1010;
+    width: 42px;
+    height: 42px;
+    font-size: 18px;
   }
 
-  .lightbox-prev { left: 20px; }
-  .lightbox-next { right: 20px; }
+  .lightbox-prev { left: 10px; }
+  .lightbox-next { right: 10px; }
 
-  /* 📱 手机端响应式适配 */
-  @media (max-width: 768px) {
+
+  /* 🖥️ 电脑端大屏幕（>= 1024px）：恢复左右分栏结构与宽大尺寸 */
+  @media (min-width: 1024px) {
     .lightbox-container {
-      flex-direction: column;
-      width: 95vw;
-      height: 94vh;
+      flex-direction: row;
+      width: 92vw;
+      height: 92vh;
+      border-radius: 20px;
     }
+
     .lightbox-img-wrapper {
-      flex: 2.5;
-      padding: 10px;
-    }
-    .lightbox-details {
-      flex: 1.2;
+      flex: 4;
       padding: 25px;
-      min-width: auto;
     }
+
+    .lightbox-details {
+      flex: 1.1;
+      min-width: 320px;
+      padding: 45px;
+      justify-content: center;
+    }
+
+    .lightbox-meta {
+      margin-bottom: 20px;
+    }
+
+    .lightbox-details .age-badge-tag {
+      font-size: 0.95rem;
+      padding: 6px 14px;
+    }
+
+    .lightbox-details .date {
+      font-size: 0.95rem;
+    }
+
     #lightbox-title {
-      font-size: 1.5rem;
+      font-size: 2rem;
+      margin: 0 0 20px 0;
     }
+
     .lightbox-details .story {
+      font-size: 1.15rem;
+      line-height: 1.75;
+      padding: 16px 20px;
+      border-radius: 12px;
+    }
+
+    .speak-btn {
+      margin-top: 24px;
+      padding: 12px 20px;
       font-size: 1rem;
+      border-radius: 25px;
     }
-    .lightbox-prev, .lightbox-next {
-      top: 32%;
-      width: 40px;
-      height: 40px;
-      font-size: 18px;
-    }
-    .lightbox-prev { left: 10px; }
-    .lightbox-next { right: 10px; }
+
     .lightbox-close {
-      top: 15px;
-      right: 15px;
-      width: 35px;
-      height: 35px;
-      font-size: 24px;
+      top: 25px;
+      right: 35px;
+      width: 45px;
+      height: 45px;
+      font-size: 30px;
+      background: rgba(255, 255, 255, 0.2);
     }
+
+    .lightbox-prev, .lightbox-next {
+      top: 50%;
+      width: 55px;
+      height: 55px;
+      font-size: 24px;
+      background: rgba(255, 255, 255, 0.2);
+    }
+
+    .lightbox-prev { left: 20px; }
+    .lightbox-next { right: 20px; }
   }
 </style>
 
-<!-- ⚡ 交互逻辑脚本（包含大图、左右切换、键盘以及语音朗读） -->
+<!-- ⚡ 交互逻辑脚本 -->
 <script define:vars={{ artworks }}>
   let currentIndex = 0;
 
@@ -461,7 +492,6 @@ import artworks from '../data/artworks.json';
   const prevBtn = document.querySelector('.lightbox-prev');
   const nextBtn = document.querySelector('.lightbox-next');
 
-  // 停止语音朗读的辅助函数
   function stopSpeech() {
     if ('speechSynthesis' in window && window.speechSynthesis.speaking) {
       window.speechSynthesis.cancel();
@@ -471,7 +501,7 @@ import artworks from '../data/artworks.json';
   }
 
   function updateLightbox(index) {
-    stopSpeech(); // 切换画作时自动打断当前朗读
+    stopSpeech();
     const art = artworks[index];
     if (!art) return;
     lightboxImg.src = art.image;
@@ -494,7 +524,7 @@ import artworks from '../data/artworks.json';
   });
 
   function closeLightbox() {
-    stopSpeech(); // 关闭弹窗时停止朗读
+    stopSpeech();
     lightbox.classList.remove('active');
     document.body.style.overflow = 'auto';
   }
@@ -522,7 +552,6 @@ import artworks from '../data/artworks.json';
   prevBtn.addEventListener('click', showPrev);
   nextBtn.addEventListener('click', showNext);
 
-  // 键盘快捷键支持 (Esc关闭，左右方向键无缝切换)
   document.addEventListener('keydown', (e) => {
     if (lightbox.classList.contains('active')) {
       if (e.key === 'Escape') closeLightbox();
@@ -531,14 +560,12 @@ import artworks from '../data/artworks.json';
     }
   });
 
-  // 🔊 语音朗读核心逻辑
   speakBtn.addEventListener('click', () => {
     if (!('speechSynthesis' in window)) {
       alert('您的浏览器暂不支持语音朗读功能');
       return;
     }
 
-    // 如果已经在朗读，则点击时停止
     if (window.speechSynthesis.speaking) {
       stopSpeech();
       return;
@@ -548,9 +575,9 @@ import artworks from '../data/artworks.json';
     if (!textToSpeak) return;
 
     const utterance = new SpeechSynthesisUtterance(textToSpeak);
-    utterance.lang = 'zh-CN'; // 中文朗读
-    utterance.rate = 0.9;   // 语速稍缓，更适合听童话故事
-    utterance.pitch = 1.05; // 语调活泼一点
+    utterance.lang = 'zh-CN';
+    utterance.rate = 0.9;
+    utterance.pitch = 1.05;
 
     utterance.onstart = () => {
       speakBtn.classList.add('playing');
