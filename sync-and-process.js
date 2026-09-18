@@ -1,39 +1,39 @@
 /**
  * ==============================================================================
  * 数字儿童美术馆自动化流水线脚本 (sync-and-process.js)
+ * ==============================================================================
  * 
- * 核心功能与技术特性：
- * 1. 增量去重：基于原始文件名 (sourceFile) 与文件内容二进制指纹 (MD5) 双重防重。
- * 2. 隐私保护：利用 Sharp 自动剥离所有 EXIF 摄影参数、相机型号与 GPS 定位数据。
- * 3. 极限瘦身：等比例自动缩放（最大宽度 1920px）并无损转码为高压缩率的 WebP 格式。
- * 4. 安全命名：使用 Node.js 加密模块生成不可预测的随机哈希文件名（如 art_a7f9b2c1）。
- * 5. 多模型童趣 AI：原生支持 Gemini、DeepSeek、MiniMax，并通过专属 Prompt 
- *    引导大模型抛弃枯燥的美术评论，转而捕捉宝宝异想天开的童话叙事。
- * 6. 智能自愈：自动审计物理图床完整性，丢失时自动由原图重建，并支持为旧条目
- *    进行 AI 智能文案补全。
- * 7. 容错保护：自动防御 JSON 格式异常引起的不可迭代中断错误。
+ * 💡 脚本核心功能简介：
+ * 1. 垃圾回收机制（自动清理）：若在 raw-images 文件夹中手动删除了某张原图，
+ *    再次运行脚本时，会自动从 artworks.json 总账本中剔除该条目，并物理同步
+ *    删除 public/uploads 目录中对应的 WebP 缓存图床文件。
+ * 2. 智能资产自愈：若图床中的 .webp 文件因误删丢失，但 raw-images 原图还在，
+ *    脚本会自动重新进行无损压缩恢复。
+ * 3. 增量与内容去重：通过文件名与二进制文件的 MD5 哈希指纹双重校验，跳过已处理图片。
+ * 4. 极致隐私保护：利用 Sharp 库自动剥离原图携带的所有 EXIF 摄影参数、相机型号与 GPS 定位。
+ * 5. 多模型 AI 童趣赋能：支持 Gemini、DeepSeek、MiniMax，引导大模型抛弃枯燥的美术评论，
+ *    转而捕捉宝宝天真烂漫的童话世界观。
  * ==============================================================================
  */
 
-// 导入 Node.js 原生模块
-import fs from 'node:fs';
-import path from 'node:path';
-import crypto from 'node:crypto';
-import { fileURLToPath } from 'node:url';
+// ================= 1. 模块导入与运行环境初始化 =================
+import fs from 'node:fs';          // Node.js 文件系统模块，用于读写文件和目录
+import path from 'node:path';      // Node.js 路径处理模块，用于拼接跨平台路径
+import crypto from 'node:crypto'; // Node.js 加密模块，用于生成随机哈希和计算 MD5
+import { fileURLToPath } from 'node:url'; // 用于在 ES Module 环境下解析文件路径
 
-// 导入高性能图片处理库
-import sharp from 'sharp';
+import sharp from 'sharp';       // 高性能图片处理库，负责裁剪、缩放和转码 WebP
 
-// 1. 兼容 ES Module (ESM) 环境下的 __dirname 和 __filename 路径解析
+// 获取当前脚本所在目录的绝对路径（兼容 ES Module 规范）
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
-// 2. 定义核心目录与文件路径常量
-const jsonPath = path.join(__dirname, 'src/data/artworks.json');       // 元数据总账本文件
-const inputDir = path.join(__dirname, 'raw-images');                 // 原始图片暂存目录（投递箱）
-const outputDir = path.join(__dirname, 'public/uploads');             // 最终生成的 WebP 图床目录
+// 定义核心项目目录与文件路径常量
+const jsonPath = path.join(__dirname, 'src/data/artworks.json');       // 存放所有画作元数据的总账本
+const inputDir = path.join(__dirname, 'raw-images');                 // 存放家长投递原始照片的文件夹
+const outputDir = path.join(__dirname, 'public/uploads');             // 存放压缩后 WebP 图床的文件夹
 
-// 3. 初始化目录结构：若目标文件夹不存在，则自动递归创建，确保程序不会因路径报错
+// 自动初始化文件夹：若目录不存在则递归创建，防止因目录缺失导致程序崩溃
 if (!fs.existsSync(outputDir)) {
   fs.mkdirSync(outputDir, { recursive: true });
 }
@@ -41,12 +41,13 @@ if (!fs.existsSync(path.dirname(jsonPath))) {
   fs.mkdirSync(path.dirname(jsonPath), { recursive: true });
 }
 
-// ================= 🤖 多模型 AI 智能配置 =================
-const AI_CONFIG = {
-  enabled: true,        // 👈 总开关：true 开启童趣 AI 识图，false 关闭（降级为默认文件名与“暂无简介”）
-  provider: 'minimax', // 👈 当前激活的大模型，可选: 'gemini', 'minimax', 'deepseek'
 
-  // 各大主流厂商的 API 参数与请求端点映射配置
+// ================= 2. 多模型 AI 智能视觉配置中心 =================
+const AI_CONFIG = {
+  enabled: true,        // 总开关：true 开启大模型童趣识图，false 关闭（降级为默认文件名和“暂无简介”）
+  provider: 'minimax', // 当前使用的大模型服务商，可选: 'gemini', 'minimax', 'deepseek'
+
+  // 各大主流 AI 厂商的配置映射表
   configs: {
     gemini: {
       apiKey: process.env.GEMINI_API_KEY || '你的_GEMINI_API_KEY',
@@ -55,7 +56,7 @@ const AI_CONFIG = {
     },
     deepseek: {
       apiKey: process.env.DEEPSEEK_API_KEY || '你的_DEEPSEEK_API_KEY',
-      model: 'deepseek-chat', // 支持多模态视觉的聊天/推理模型
+      model: 'deepseek-chat', // 兼容多模态视觉的 DeepSeek 聊天模型
       url: () => 'https://api.deepseek.com/chat/completions'
     },
     minimax: {
@@ -65,12 +66,14 @@ const AI_CONFIG = {
     }
   }
 };
-// ====================================================
+
+
+// ================= 3. 底层密码学与辅助工具函数 =================
 
 /**
- * 辅助函数：生成完全无规律的密码学随机资产文件名
- * 避免时间戳或数字递增带来的隐私泄露和文件名规律化猜测
- * @returns {string} 形如 art_a7f9b2c1 的随机前缀
+ * 生成完全无规律、不可预测的密码学随机资产文件名
+ * 避免直接使用时间戳或自增数字导致文件名被外人规律化猜解
+ * @returns {string} 形如 art_a7f9b2c1 的安全文件名
  */
 function generateRandomFilename() {
   const randomHex = crypto.randomBytes(6).toString('hex'); // 生成 12 位十六进制随机字符串
@@ -78,10 +81,10 @@ function generateRandomFilename() {
 }
 
 /**
- * 辅助函数：计算文件二进制缓冲区的 MD5 哈希指纹
- * 用于实现“内容级去重”（防止图片换了名字但内容一样时重复处理）
+ * 计算文件二进制缓冲区的 MD5 哈希指纹
+ * 用于实现“内容级去重”（防止图片换了名字但内容完全一样时重复处理）
  * @param {Buffer} buffer - 图片文件的二进制数据
- * @returns {string} 32位 MD5 哈希值
+ * @returns {string} 32位 MD5 哈希串
  */
 function calculateMd5(buffer) {
   return crypto.createHash('md5').update(buffer).digest('hex');
@@ -89,9 +92,9 @@ function calculateMd5(buffer) {
 
 /**
  * 统一的通用 AI 视觉接口适配器
- * 自动适配 Google Gemini 官方 API 与兼容 OpenAI 格式的其他大模型（DeepSeek / MiniMax）
- * @param {string} mimeType - 图片 MIME 类型 (image/jpeg 或 image/png)
- * @param {string} base64Image - Base64 编码的图片字符串
+ * 自动适配 Google Gemini 官方 API 与兼容 OpenAI 规范的其他大模型（DeepSeek / MiniMax）
+ * @param {string} mimeType - 图片的 MIME 类型 (image/jpeg 或 image/png)
+ * @param {string} base64Image - 经过 Base64 编码的图片字符串
  * @param {string} prompt - 策展/童趣提示词
  * @returns {Promise<string>} 大模型返回的原始文本内容
  */
@@ -99,7 +102,7 @@ async function fetchAiVision(mimeType, base64Image, prompt) {
   const currentProvider = AI_CONFIG.provider;
   const cfg = AI_CONFIG.configs[currentProvider];
 
-  // 安全检查：确认当前选中的模型已配置了合法的 API Key
+  // 安全前置检查：确认当前选中的模型已配置了合法的 API Key，而不是默认占位符
   if (!cfg || cfg.apiKey.startsWith('你的_')) {
     throw new Error(`未配置 ${currentProvider} 的有效 API Key`);
   }
@@ -108,7 +111,7 @@ async function fetchAiVision(mimeType, base64Image, prompt) {
   let headers = { 'Content-Type': 'application/json' };
   let body = {};
 
-  // 分支 A：针对 Google Gemini 独立构建官方请求体结构
+  // 分支 A：针对 Google Gemini 构建官方特有的请求体结构
   if (currentProvider === 'gemini') {
     requestUrl = cfg.url(cfg.model, cfg.apiKey);
     body = {
@@ -120,7 +123,7 @@ async function fetchAiVision(mimeType, base64Image, prompt) {
       }]
     };
   } 
-  // 分支 B：针对 DeepSeek、MiniMax 等兼容 OpenAI 标准多模态规范构建请求体
+  // 分支 Б：针对 DeepSeek、MiniMax 等兼容 OpenAI 标准多模态规范构建请求体
   else {
     requestUrl = cfg.url();
     headers['Authorization'] = `Bearer ${cfg.apiKey}`;
@@ -138,7 +141,7 @@ async function fetchAiVision(mimeType, base64Image, prompt) {
     };
   }
 
-  // 发起标准 Fetch 网络请求
+  // 发起标准 Fetch 异步网络请求
   const response = await fetch(requestUrl, {
     method: 'POST',
     headers,
@@ -148,7 +151,7 @@ async function fetchAiVision(mimeType, base64Image, prompt) {
   const data = await response.json();
   let textResult = '';
 
-  // 根据不同服务商从返回体中精准提取文本内容
+  // 根据不同的服务商从返回的 JSON 结构中精准提取文本
   if (currentProvider === 'gemini') {
     textResult = data.candidates?.[0]?.content?.parts?.[0]?.text;
   } else {
@@ -163,7 +166,7 @@ async function fetchAiVision(mimeType, base64Image, prompt) {
 }
 
 /**
- * 核心函数：调用视觉模型获取充满童趣的艺术品标题与描述
+ * 核心包装函数：调用视觉模型获取充满童趣的艺术品标题与描述
  * 内部已集成深度思考标签过滤与 JSON 解析清洗容错
  * @param {string} mimeType - 图片类型
  * @param {string} base64Image - 图片 Base64 数据
@@ -175,7 +178,7 @@ async function getAiMetadata(mimeType, base64Image) {
   try {
     console.log(`🤖 [AI (${AI_CONFIG.provider})] 正在聆听宝宝画里的奇思妙想...`);
     
-    // 🌟 定制化的童趣 Prompt：严禁美术评论，专门引导大模型输出儿童视角的异想天开故事
+    // 🌟 定制化的童趣 Prompt：严禁枯燥的美术评论，专门引导大模型输出童话视角的解读
     const prompt = `请作为一个充满童心、懂得欣赏儿童画的伙伴，来观察这幅画。
     要求：
     1. 绝对不要写枯燥的美术评论、构图分析或色彩技法评价。
@@ -185,16 +188,16 @@ async function getAiMetadata(mimeType, base64Image) {
     请严格以纯 JSON 格式返回（不要包含任何 markdown 符号如 \`\`\`json）：
     {
       "title": "一个充满童趣、生动好玩的简短标题",
-      "description": "@@一段充满幻想与童真的描述（50-100字左右，展现宝宝眼中的奇妙世界）"
-    }`.replace('@@', ''); // 避免特殊字符干扰
+      "description": "一段充满幻想与童真的描述（50-100字左右，展现宝宝眼中的奇妙世界）"
+    }`;
 
-    // 获取大模型原始回复
+    // 获取大模型原始回复文本
     const rawText = await fetchAiVision(mimeType, base64Image, prompt);
 
-    // 🛡️ 兼容处理：自动剔除推理模型（如 DeepSeek-R1 等）自带的 <think>...</think> 思考过程文本
+    // 🛡️ 兼容处理：自动剔除某些推理模型（如 DeepSeek-R1）自带的 <think>...</think> 内部思考过程
     const noThinkText = rawText.replace(/<think>[\s\S]*?<\/think>/g, '').trim();
 
-    // 清理可能附带的 markdown 标记并将其反序列化为 JSON 对象
+    // 清理可能附带的 markdown 标记，并将其反序列化为安全的 JSON 对象
     const cleanJsonStr = noThinkText.replace(/```json/g, '').replace(/```/g, '').trim();
     return JSON.parse(cleanJsonStr);
 
@@ -204,19 +207,20 @@ async function getAiMetadata(mimeType, base64Image) {
   }
 }
 
-/**
- * 主执行管道：串联资产自愈、AI 智能回填、增量转码与 JSON 总账本更新
- */
+
+// ================= 4. 主执行业务管道 (Pipeline) =================
 async function runPipeline() {
   try {
-    // 1. 安全读取并解析 artworks.json 总账本数据（加入防爆类型校验）
+    // -------------------------------------------------------------
+    // 步骤 1：安全读取并解析 artworks.json 总账本数据（加入防爆类型校验）
+    // -------------------------------------------------------------
     let artworks = [];
     if (fs.existsSync(jsonPath)) {
       try {
         const fileContent = fs.readFileSync(jsonPath, 'utf-8').trim();
         if (fileContent) {
           const parsed = JSON.parse(fileContent);
-          // 🛡️ 关键防爆：确保持久化内容必须是数组，若非数组则自动修正，杜绝 is not iterable 报错
+          // 必须确保解析出来的是数组，否则强行重置，防止后续 .filter / .map 报错崩溃
           if (Array.isArray(parsed)) {
             artworks = parsed;
           } else {
@@ -230,10 +234,41 @@ async function runPipeline() {
 
     console.log(`\n🔍 开始执行资产体检与自愈审计...`);
 
-    let healedCount = 0;       // 统计物理文件自愈恢复的数量
-    let aiEnrichedCount = 0;   // 统计 AI 智能补全文案的数量
+    // -------------------------------------------------------------
+    // 步骤 2：阶段零 - 孤儿资产自动清理（垃圾回收机制）
+    // 检查 raw-images 目录下的所有原文件名。若总账本中有记录，
+    // 但 raw-images 中对应的原图已被用户手动删除，则同步进行联动清理
+    // -------------------------------------------------------------
+    const rawFilesNow = fs.existsSync(inputDir) ? fs.readdirSync(inputDir) : [];
+    const initialCount = artworks.length;
+    
+    artworks = artworks.filter(item => {
+      // 如果该条目有记录源文件，但在 raw-images 中已经找不到了
+      if (item.sourceFile && !rawFilesNow.includes(item.sourceFile)) {
+        const targetWebpPath = path.join(outputDir, path.basename(item.image));
+        
+        // 顺便把 public/uploads 里的对应 WebP 缓存文件也物理删除
+        if (fs.existsSync(targetWebpPath)) {
+          fs.unlinkSync(targetWebpPath);
+          console.log(`🗑️ [自动清理] 发现原图已删除，已同步移除图床文件: ${path.basename(item.image)}`);
+        }
+        console.log(`🗑️ [自动清理] 已从总账本中剔除失效条目: "${item.title}"`);
+        return false; // 从数组中过滤掉该条目
+      }
+      return true; // 保留正常条目
+    });
 
-    // ================= 🛡️ 阶段一：资产自愈 + AI 智能文案补全 =================
+    const prunedCount = initialCount - artworks.length;
+    if (prunedCount > 0) {
+      console.log(`🧹 成功清理失效孤儿资产 ${prunedCount} 个。\n`);
+    }
+
+    let healedCount = 0;       // 统计物理文件自愈恢复的数量
+    let aiEnrichedCount = 0;   // 统计 AI 智能重塑文案的数量
+
+    // -------------------------------------------------------------
+    // 步骤 3：阶段一 - 物理资产自愈检查 & 旧文案 AI 智能升级
+    // -------------------------------------------------------------
     for (const item of artworks) {
       if (!item.image) continue;
       const webpFileName = path.basename(item.image);
@@ -242,22 +277,22 @@ async function runPipeline() {
       let imageBuffer = null;
       let sourcePath = item.sourceFile ? path.join(inputDir, item.sourceFile) : null;
 
-      // 任务 A：物理自愈检查 —— 如果图床目录中的 .webp 文件丢失，但原始图片还在，则自动重新压制生成
+      // 任务 A：物理自愈 —— 如果图床目录中的 .webp 文件丢失，但原始照片还在，自动重新压制生成
       if (!fs.existsSync(targetWebpPath)) {
         console.warn(`⚠️ [自愈] 发现文件丢失: ${webpFileName}`);
         if (sourcePath && fs.existsSync(sourcePath)) {
           imageBuffer = fs.readFileSync(sourcePath);
           await sharp(imageBuffer)
-            .rotate()
-            .resize({ width: 1920, withoutEnlargement: true })
-            .webp({ quality: 80 })
+            .rotate()                                               // 根据手机拍摄的 EXIF 自动旋转正方向
+            .resize({ width: 1920, withoutEnlargement: true })     // 限制最大宽度为 1920px，防止过大
+            .webp({ quality: 80 })                                  // 转换为高压缩率的 WebP 格式
             .toFile(targetWebpPath);
           healedCount++;
           console.log(`✨ [自愈] 成功从原图重新压缩生成 WebP。`);
         }
       }
 
-      // 任务 B：AI 智能回填检查 —— 若开启了 AI，且发现旧条目仍是默认占位或老旧评述，顺手重塑为童趣文案
+      // 任务 B：AI 文案重塑 —— 若发现旧条目仍然是老旧占位符，顺手升级为最新的童趣故事文案
       if (AI_CONFIG.enabled && (item.description === "暂无简介" || item.description.includes("混合媒材") || item.description.includes("水彩晕染"))) {
         if (!imageBuffer && sourcePath && fs.existsSync(sourcePath)) {
           imageBuffer = fs.readFileSync(sourcePath);
@@ -283,16 +318,17 @@ async function runPipeline() {
       console.log(`✅ 资产状态健康。\n`);
     }
 
-    // ================= 🚀 阶段二：带实时进度的增量扫描与转码 =================
-    // 建立双重内存白名单：已处理过的【原文件名】集合 与 【图片内容 MD5 指纹】集合
+    // -------------------------------------------------------------
+    // 步骤 4：阶段二 - 带实时进度的增量扫描与转码流水线
+    // -------------------------------------------------------------
+    // 提取已处理过的原文件名集合与 MD5 集合，用于极速去重
     const processedSourceFiles = new Set(artworks.map(item => item.sourceFile).filter(Boolean));
     const processedMd5s = new Set(artworks.map(item => item.md5).filter(Boolean));
 
-    // 读取 raw-images 目录下的所有候选图片文件
+    // 读取 raw-images 文件夹下所有的图片格式文件
     const rawFiles = fs.readdirSync(inputDir).filter(file => /\.(jpg|jpeg|png|webp)$/i.test(file));
     const totalFiles = rawFiles.length;
 
-    // 若投递箱为空，直接提示并安全退出
     if (totalFiles === 0) {
       console.log(`📂 raw-images 文件夹下没有发现任何图片。`);
       return;
@@ -300,20 +336,20 @@ async function runPipeline() {
 
     console.log(`📦 共扫描到 ${totalFiles} 张原图，开始检查增量更新...\n`);
 
-    let processedCount = 0; // 统计本次新处理的图片数
-    let skippedCount = 0;   // 统计本次跳过的重复图片数
-    let currentIndex = 0;   // 进度计数器索引
+    let processedCount = 0; 
+    let skippedCount = 0;   
+    let currentIndex = 0;   
 
-    // 循环遍历每一张原始图片
+    // 循环遍历每一张原始照片
     for (const filename of rawFiles) {
       currentIndex++;
-      const progress = `(${currentIndex}/${totalFiles})`; // 实时进度指示器 (如 3/12)
+      const progress = `(${currentIndex}/${totalFiles})`; 
       const inputPath = path.join(inputDir, filename);
       
       const imageBuffer = fs.readFileSync(inputPath);
       const fileMd5 = calculateMd5(imageBuffer);
 
-      // 双重防重校验：若原文件名或内容 MD5 已经登记过，则直接跳过处理
+      // 去重检查：如果文件名或文件内容 MD5 已经存在于总账本中，直接跳过
       if (processedSourceFiles.has(filename) || processedMd5s.has(fileMd5)) {
         skippedCount++;
         console.log(`⏩ ${progress} 跳过重复: ${filename}`);
@@ -323,7 +359,7 @@ async function runPipeline() {
       processedCount++;
       console.log(`✨ ${progress} 发现新原图，正在捕捉童真幻想: ${filename}`);
 
-      // 生成完全无规律的安全随机资产文件名
+      // 生成安全的随机文件名和目标路径
       const randomBaseName = generateRandomFilename();
       const outputWebpName = `${randomBaseName}.webp`;
       const outputPath = path.join(outputDir, outputWebpName);
@@ -332,20 +368,19 @@ async function runPipeline() {
       const base64Image = imageBuffer.toString('base64');
       const mimeType = filename.endsWith('.png') ? 'image/png' : 'image/jpeg';
 
-      // 核心图像处理流水线：自动根据方向旋转、等比例缩放（最大宽度1920px）、剥离所有 EXIF 隐私并高质量转码为 WebP
+      // 使用 Sharp 进行图片处理：清除 EXIF 隐私、等比缩放、转码为 WebP
       await sharp(inputPath)
-        .rotate()
-        .resize({ width: 1920, withoutEnlargement: true })
-        .webp({ quality: 80 })
+        .rotate()                                               // 自动纠正手机拍摄时的旋转角度
+        .resize({ width: 1920, withoutEnlargement: true })     // 限制最大宽度 1920px，保护画质同时大幅瘦身
+        .webp({ quality: 80 })                                  // 压缩为 80% 画质的 WebP
         .toFile(outputPath);
 
       console.log(`   🔒 EXIF 隐私已清除，生成随机文件名 -> ${outputWebpName}`);
 
-      // 初始化默认的降级文案（以原文件名去掉后缀作为临时标题）
-      let title = path.parse(filename).name;
-      let description = "暂无简介";
+      let title = path.parse(filename).name; // 默认标题为原文件名
+      let description = "暂无简介";             // 默认描述
 
-      // 若开启了 AI，调用大模型生成充满童趣的艺术品文案
+      // 如果开启了 AI，调用视觉模型生成专属童趣标题和描述
       if (AI_CONFIG.enabled) {
         const aiData = await getAiMetadata(mimeType, base64Image);
         if (aiData) {
@@ -355,26 +390,28 @@ async function runPipeline() {
         }
       }
 
-      // 将新作品条目压入总账本数组
+      // 将新画作的元数据结构压入 artworks 数组
       artworks.push({
         id: `art_${Date.now()}_${Math.floor(Math.random() * 1000)}`,
         title,
         image: imagePathForJson,
-        sourceFile: filename, // 记录源文件名，用于后续溯源和防重
-        md5: fileMd5,         // 记录内容 MD5，防止换名重复导入
-        date: new Date().toISOString().split('T')[0],
+        sourceFile: filename, 
+        md5: fileMd5,         
+        date: new Date().toISOString().split('T')[0], // 自动记录当前日期 (YYYY-MM-DD)
         description
       });
 
-      // 同步更新内存集合，防止单次运行中出现重复冲突
+      // 动态将新文件加入已处理集合中
       processedSourceFiles.add(filename);
       processedMd5s.add(fileMd5);
     }
 
-    // 将最新的艺术品元数据写回 src/data/artworks.json 总账本（格式化缩进 2 格）
+    // -------------------------------------------------------------
+    // 步骤 5：将最新的完整画作数组持久化写回到 artworks.json 总账本中
+    // -------------------------------------------------------------
     fs.writeFileSync(jsonPath, JSON.stringify(artworks, null, 2), 'utf-8');
 
-    // 打印最终任务执行统计报表
+    // 打印流水线大功告成的统计报表
     console.log(`\n========================================`);
     console.log(`🎉 任务全部圆满完成！`);
     console.log(`📊 总计扫描: ${totalFiles} 张`);
@@ -389,5 +426,5 @@ async function runPipeline() {
   }
 }
 
-// 立即触发执行流水线
+// 立即执行自动化流水线
 runPipeline();
