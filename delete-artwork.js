@@ -15,30 +15,6 @@ if (!fs.existsSync(contentDir)) {
   process.exit(0);
 }
 
-// 辅助函数：计算字符串在终端中的实际显示宽度（中文字符算 2 个宽度）
-function getDisplayWidth(str) {
-  let width = 0;
-  for (let i = 0; i < str.length; i++) {
-    const code = str.charCodeAt(i);
-    if (
-      (code >= 0x4e00 && code <= 0x9fa5) || 
-      (code >= 0xff00 && code <= 0xffef) || 
-      (code >= 0x3000 && code <= 0x303f)
-    ) {
-      width += 2;
-    } else {
-      width += 1;
-    }
-  }
-  return width;
-}
-
-function padWidth(str, targetWidth) {
-  const currentWidth = getDisplayWidth(str);
-  if (currentWidth >= targetWidth) return str;
-  return str + ' '.repeat(targetWidth - currentWidth);
-}
-
 const files = fs.readdirSync(contentDir).filter(file => !file.startsWith('.'));
 
 if (files.length === 0) {
@@ -62,17 +38,23 @@ files.forEach(file => {
         const matchDate = content.match(/date:\s*["']?([^"'\n]+)["']?/);
         const matchImage = content.match(/image:\s*["']?([^"'\n]+)["']?/);
         const matchSource = content.match(/sourceFile:\s*["']?([^"'\n]+)["']?/);
+        const matchMd5 = content.match(/md5:\s*["']?([^"'\n]+)["']?/);
         data = {
           title: matchTitle ? matchTitle[1] : file,
           date: matchDate ? matchDate[1] : '未知日期',
           image: matchImage ? matchImage[1] : '',
-          sourceFile: matchSource ? matchSource[1] : ''
+          sourceFile: matchSource ? matchSource[1] : '',
+          md5: matchMd5 ? matchMd5[1] : ''
         };
       }
+
+      // 提取转后的图片名称（如 art_xxx.webp）
+      const webpName = data.image ? path.basename(data.image) : '（无）';
 
       artworks.push({
         fileName: file,
         filePath: filePath,
+        webpName,
         ...data
       });
     } catch (e) {
@@ -86,24 +68,52 @@ if (artworks.length === 0) {
   process.exit(0);
 }
 
+// 检查并归纳相同 MD5 的重复图片
+const md5Map = {};
+artworks.forEach((art, idx) => {
+  if (art.md5) {
+    if (!md5Map[art.md5]) md5Map[art.md5] = [];
+    md5Map[art.md5].push({ index: idx + 1, ...art });
+  }
+});
+
+const duplicateGroups = Object.entries(md5Map).filter(([md5, list]) => list.length > 1);
+
+console.log('\n🎨 当前 Content Collections 画作资产管理系统\n');
+
+if (duplicateGroups.length > 0) {
+  console.log('⚠️ 【警告】检测到以下原图 MD5 相同的重复画作：');
+  console.log('────────────────────────────────────────────────────────────────────────');
+  duplicateGroups.forEach(([md5, list], gIdx) => {
+    console.log(` 📌 重复组 #${gIdx + 1} (完整 MD5: ${md5})`);
+    list.forEach(item => {
+      console.log(`    └─ [编号 ${item.index}] JSON: ${item.fileName} | 原文件名: ${item.sourceFile || '无'} | 标题: ${item.title || '无标题'}`);
+    });
+  });
+  console.log('────────────────────────────────────────────────────────────────────────\n');
+} else {
+  console.log('✨ 极好！当前没有发现内容完全重复（MD5相同）的图片。\n');
+}
+
+console.log('📋 全部画作总览表格：\n');
+console.log(' 编号 │ 日期       │ 转后图片名称        │ JSON文件名');
+console.log('─────────────────────────────────────────────────────────────────────────────');
+
+artworks.forEach((art, index) => {
+  const numStr = `[${index + 1}]`.padEnd(5);
+  const dateStr = (art.date || '未知').padEnd(10);
+  const webpStr = (art.webpName || '无').padEnd(19);
+  const jsonStr = (art.fileName || '无').padEnd(34);
+
+  console.log(` ${numStr} │ ${dateStr} │ ${webpStr} │ ${jsonStr}`);
+});
+
+console.log('─────────────────────────────────────────────────────────────────────────────');
+
 const rl = readline.createInterface({
   input: process.stdin,
   output: process.stdout
 });
-
-console.log('\n🎨 当前 Content Collections 收录的画作列表：\n');
-console.log(' 编号  │ 日期       │ 集合文件名');
-console.log('───────┼────────────┼─────────────────────────────────────────────────────');
-
-artworks.forEach((art, index) => {
-  const numStr = padWidth(`[${index + 1}]`, 5);
-  const dateStr = padWidth(art.date || '未知日期', 10);
-  const fileStr = padWidth(art.fileName, 51);
-  
-  console.log(` ${numStr} │ ${dateStr} │ ${fileStr}`);
-});
-
-console.log('───────┴────────────┴─────────────────────────────────────────────────────');
 
 rl.question('\n👉 请输入编号（如 1, 3）、文件名或关键词，或直接回车取消: ', (answer) => {
   const input = answer.trim();
@@ -128,7 +138,16 @@ rl.question('\n👉 请输入编号（如 1, 3）、文件名或关键词，或�
       artworks.forEach((art, idx) => {
         const fileName = art.fileName.toLowerCase();
         const title = (art.title || '').toLowerCase();
-        if (fileName.includes(keyword) || title.includes(keyword)) {
+        const sourceFile = (art.sourceFile || '').toLowerCase();
+        const webpName = (art.webpName || '').toLowerCase();
+        const md5 = (art.md5 || '').toLowerCase();
+        if (
+          fileName.includes(keyword) || 
+          title.includes(keyword) || 
+          sourceFile.includes(keyword) || 
+          webpName.includes(keyword) ||
+          md5.includes(keyword)
+        ) {
           indices.push(idx);
         }
       });
@@ -146,7 +165,7 @@ rl.question('\n👉 请输入编号（如 1, 3）、文件名或关键词，或�
   console.log('\n⚠️ 准备彻底删除以下匹配的画作及关联文件：');
   uniqueIndices.forEach(idx => {
     const art = artworks[idx];
-    console.log(`  - [${idx + 1}] 文件: ${art.fileName}  ➔  「${art.title || '无标题'}」`);
+    console.log(`  - [${idx + 1}] JSON: ${art.fileName}  ➔  「${art.title || '无标题'}」 (转后图片: ${art.webpName})`);
   });
 
   rl.question('\n❓ 确认要彻底删除这些选中的画作吗？(y/N): ', (confirm) => {
