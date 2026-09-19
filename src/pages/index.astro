@@ -17,11 +17,12 @@ const artworks = rawArtworks.map((entry) => {
     date: art.date || '2026-01-01',
     year: `${yearStr}年`,
     month: monthStr,
+    lqip: art.lqip || '',
   };
 }).sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime())
   .map((art, index) => ({
     ...art,
-    originalIndex: index // 确保索引与排序后的数组位置严格一致，供灯箱弹窗使用
+    originalIndex: index
   }));
 
 // 📊 计算成长统计数据
@@ -46,6 +47,9 @@ const timelineHierarchy = Object.keys(yearMap).sort().reverse().map(year => ({
 ---
 
 <Layout title="七叶童画成林 🎨">
+  <!-- 引入 html2canvas 用于一键生成图片下载 -->
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js" crossorigin="anonymous" referrerpolicy="no-referrer"></script>
+
   <main class="gallery-container is-grid" id="galleryRoot">
     <!-- 头部标语 -->
     <header class="header">
@@ -67,7 +71,13 @@ const timelineHierarchy = Object.keys(yearMap).sort().reverse().map(year => ({
 
     <!-- 🎛️ 左侧悬浮控制与筛选侧边栏 -->
     <div class="control-sidebar" id="controlSidebar">
-      <div class="nav-title">🎛️ 视图与分类</div>
+      <div class="nav-title">🎛️ 视图与检索</div>
+
+      <!-- 🔍 关键词实时搜索框 (桌面端) -->
+      <div class="control-group">
+        <div class="nav-subtitle">画作搜索</div>
+        <input type="text" id="searchInputSidebar" class="search-input" placeholder="搜索标题、标签、故事..." />
+      </div>
 
       <div class="control-group">
         <div class="nav-subtitle">视图模式</div>
@@ -91,6 +101,11 @@ const timelineHierarchy = Object.keys(yearMap).sort().reverse().map(year => ({
 
     <!-- 📱 移动端顶部显示的备用控制栏 -->
     <div class="mobile-control-bar">
+      <!-- 🔍 关键词实时搜索框 (移动端) -->
+      <div class="mobile-search-box">
+        <input type="text" id="searchInputMobile" class="search-input" placeholder="🔍 搜索画作标题、标签、故事..." />
+      </div>
+
       <div class="view-switcher">
         <button class="view-btn active" data-view="grid">🖼️ 网格</button>
         <button class="view-btn" data-view="timeline">⏳ 时间轴</button>
@@ -132,8 +147,26 @@ const timelineHierarchy = Object.keys(yearMap).sort().reverse().map(year => ({
           <div class="timeline-date-badge">{art.date}</div>
 
           <div class="card">
+            <!-- 🖼️ 引入骨架屏与 LQIP 的图片包装容器 -->
             <div class="image-wrapper" data-index={art.originalIndex} title="点击查看大图与详细故事">
-              <img src={art.image} alt={art.title} loading="lazy" />
+              <!-- 1. 骨架屏闪烁动画层 -->
+              <div class="skeleton-loader"></div>
+
+              <!-- 2. LQIP 低质量模糊占位图层 -->
+              {art.lqip && (
+                <div class="lqip-bg" style={`background-image: url('${art.lqip}')`}></div>
+              )}
+
+              <!-- 3. 高清主图 -->
+              <img
+                src={art.image}
+                alt={art.title}
+                loading="lazy"
+                decoding="async"
+                onload="this.classList.add('loaded'); this.parentElement.classList.add('loaded');"
+                onerror="this.classList.add('loaded'); this.parentElement.classList.add('loaded');"
+              />
+
               <span class="age-badge">{art.year}</span>
               <div class="zoom-tip">🔍 点击查看大图</div>
             </div>
@@ -182,6 +215,7 @@ const timelineHierarchy = Object.keys(yearMap).sort().reverse().map(year => ({
 
         <div class="lightbox-actions">
           <button id="speak-btn" class="speak-btn" title="点击朗读故事">🔊 朗读故事</button>
+          <button id="share-btn" class="speak-btn" title="分享这幅画作">📤 分享画作</button>
           <button id="portraitPosterBtn" class="poster-btn" title="生成竖版电影海报">🎬 竖版海报</button>
           <button id="landscapePosterBtn" class="poster-btn" title="生成横版纪念卡">🖼️ 横版纪念卡</button>
         </div>
@@ -191,10 +225,10 @@ const timelineHierarchy = Object.keys(yearMap).sort().reverse().map(year => ({
 
   <!-- 🎬 1. 竖版电影海报预览模态框 -->
   <div id="portraitPosterModal" class="poster-modal">
-    <div class="portrait-card">
+    <div class="portrait-card" id="portraitCardNode">
       <div class="poster-header">✨ 七叶童画成林 ✨</div>
       <div class="portrait-img-box">
-        <img id="portraitImg" src="" alt="竖版海报" />
+        <img id="portraitImg" src="" alt="竖版海报" crossorigin="anonymous" />
       </div>
       <h3 id="portraitTitle"></h3>
       <p id="portraitDesc" class="poster-story"></p>
@@ -204,16 +238,17 @@ const timelineHierarchy = Object.keys(yearMap).sort().reverse().map(year => ({
       </div>
     </div>
     <div class="poster-actions">
+      <button id="downloadPortraitBtn" class="poster-download-btn">📥 一键下载海报图片</button>
       <button id="closePortraitBtn" class="poster-close-btn">关闭海报</button>
-      <p class="poster-tip">💡 提示：长按保存竖版电影海报</p>
+      <p class="poster-tip">💡 点击上方按钮可直接将完整海报保存为图片</p>
     </div>
   </div>
 
   <!-- 🖼️ 2. 横版宽屏纪念卡预览模态框 -->
   <div id="landscapePosterModal" class="poster-modal">
-    <div class="landscape-card">
+    <div class="landscape-card" id="landscapeCardNode">
       <div class="poster-img-box-wide">
-        <img id="landscapeImg" src="" alt="横版纪念卡" />
+        <img id="landscapeImg" src="" alt="横版纪念卡" crossorigin="anonymous" />
       </div>
       <div class="poster-info-wide">
         <div class="poster-badge">✨ 七叶童画成林 ✨</div>
@@ -226,14 +261,14 @@ const timelineHierarchy = Object.keys(yearMap).sort().reverse().map(year => ({
       </div>
     </div>
     <div class="poster-actions">
+      <button id="downloadLandscapeBtn" class="poster-download-btn">📥 一键下载卡片图片</button>
       <button id="closeLandscapeBtn" class="poster-close-btn">关闭卡片</button>
-      <p class="poster-tip">💡 提示：截图或长按保存横版纪念卡</p>
+      <p class="poster-tip">💡 点击上方按钮可直接将完整卡片保存为图片</p>
     </div>
   </div>
 </Layout>
 
 <style>
-  /* 保持原有的样式不变 */
   .gallery-container {
     width: 100%;
     margin: 0 auto;
@@ -293,6 +328,25 @@ const timelineHierarchy = Object.keys(yearMap).sort().reverse().map(year => ({
     font-weight: 500;
   }
 
+  /* 🔍 搜索框样式 */
+  .search-input {
+    width: 100%;
+    padding: 7px 10px;
+    border: 1px solid #fde68a;
+    border-radius: 8px;
+    font-size: 0.78rem;
+    background: #fffbf5;
+    color: #78350f;
+    box-sizing: border-box;
+    outline: none;
+    transition: all 0.2s ease;
+  }
+  .search-input:focus {
+    border-color: #f59e0b;
+    background: #ffffff;
+    box-shadow: 0 0 0 2px rgba(245, 158, 11, 0.2);
+  }
+
   .control-sidebar {
     position: fixed;
     left: 20px;
@@ -306,9 +360,9 @@ const timelineHierarchy = Object.keys(yearMap).sort().reverse().map(year => ({
     z-index: 999;
     display: flex;
     flex-direction: column;
-    gap: 14px;
+    gap: 12px;
     border: 1px solid #fef3c7;
-    width: 150px;
+    width: 160px;
     box-sizing: border-box;
   }
 
@@ -325,7 +379,7 @@ const timelineHierarchy = Object.keys(yearMap).sort().reverse().map(year => ({
   .control-group {
     display: flex;
     flex-direction: column;
-    gap: 6px;
+    gap: 5px;
   }
 
   .nav-subtitle {
@@ -406,8 +460,16 @@ const timelineHierarchy = Object.keys(yearMap).sort().reverse().map(year => ({
       display: flex;
       flex-direction: column;
       align-items: center;
-      gap: 12px;
+      gap: 10px;
       margin-bottom: 25px;
+      width: 100%;
+      box-sizing: border-box;
+    }
+    .mobile-search-box {
+      width: 100%;
+      max-width: 500px;
+      padding: 0 15px;
+      box-sizing: border-box;
     }
     .mobile-control-bar .view-switcher {
       display: flex;
@@ -549,6 +611,12 @@ const timelineHierarchy = Object.keys(yearMap).sort().reverse().map(year => ({
 
   .card-wrapper.hidden {
     display: none !important;
+  }
+
+  /* 🚀 高性能渲染优化：原生内容可见性虚拟化 */
+  .card-wrapper {
+    content-visibility: auto;
+    contain-intrinsic-size: auto 420px;
   }
 
   .gallery-container.is-grid .gallery-content {
@@ -700,15 +768,58 @@ const timelineHierarchy = Object.keys(yearMap).sort().reverse().map(year => ({
     flex-shrink: 0;
   }
 
+  .skeleton-loader {
+    position: absolute;
+    inset: 0;
+    background: linear-gradient(90deg, #f3f4f6 25%, #e5e7eb 37%, #f3f4f6 63%);
+    background-size: 400% 100%;
+    animation: skeleton-shimmer 1.4s ease infinite;
+    z-index: 1;
+    transition: opacity 0.4s ease;
+  }
+
+  @keyframes skeleton-shimmer {
+    0% { background-position: 100% 50%; }
+    100% { background-position: 0 50%; }
+  }
+
+  .lqip-bg {
+    position: absolute;
+    inset: 0;
+    background-size: cover;
+    background-position: center;
+    filter: blur(20px);
+    transform: scale(1.1);
+    z-index: 2;
+    transition: opacity 0.4s ease;
+  }
+
   .image-wrapper img {
     max-height: 100%;
     max-width: 100%;
     object-fit: contain;
-    transition: transform 0.3s ease;
+    position: relative;
+    z-index: 3;
+    opacity: 0;
+    transition: opacity 0.5s ease, transform 0.3s ease;
   }
 
-  .card:hover .image-wrapper img {
+  .card:hover .image-wrapper img.loaded {
     transform: scale(1.03);
+  }
+
+  .image-wrapper.loaded .skeleton-loader {
+    opacity: 0;
+    pointer-events: none;
+  }
+
+  .image-wrapper.loaded .lqip-bg {
+    opacity: 0;
+    pointer-events: none;
+  }
+
+  .image-wrapper.loaded img {
+    opacity: 1;
   }
 
   .zoom-tip {
@@ -723,6 +834,7 @@ const timelineHierarchy = Object.keys(yearMap).sort().reverse().map(year => ({
     opacity: 0;
     transition: opacity 0.3s ease;
     backdrop-filter: blur(4px);
+    z-index: 4;
   }
 
   .image-wrapper:hover .zoom-tip {
@@ -739,6 +851,7 @@ const timelineHierarchy = Object.keys(yearMap).sort().reverse().map(year => ({
     padding: 3px 8px;
     border-radius: 20px;
     backdrop-filter: blur(4px);
+    z-index: 4;
   }
 
   .card-content {
@@ -1006,10 +1119,10 @@ const timelineHierarchy = Object.keys(yearMap).sort().reverse().map(year => ({
 
   .portrait-card {
     background: #fffbf5;
-    width: 440px;
-    max-width: 95vw;
-    padding: 28px;
-    border-radius: 22px;
+    width: 580px;
+    max-width: 96vw;
+    padding: 32px;
+    border-radius: 24px;
     box-shadow: 0 25px 50px rgba(0,0,0,0.6);
     border: 2px solid #fde68a;
     display: flex;
@@ -1017,71 +1130,76 @@ const timelineHierarchy = Object.keys(yearMap).sort().reverse().map(year => ({
     align-items: center;
     text-align: center;
     box-sizing: border-box;
+    max-height: 88vh;
+    overflow-y: auto;
   }
 
   .portrait-img-box {
     width: 100%;
-    height: 460px;
-    background: #0d0d0d;
-    border-radius: 14px;
-    overflow: hidden;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    margin-bottom: 16px;
-    padding: 8px;
-  }
-
-  #portraitImg {
-    max-width: 100%;
-    max-height: 100%;
-    object-fit: contain;
-    border-radius: 8px;
-  }
-
-  .portrait-card h3 {
-    font-size: 1.25rem;
-    color: #1f2937;
-    margin: 0 0 8px 0;
-  }
-
-  .landscape-card {
-    background: #fffbf5;
-    width: 880px;
-    max-width: 95vw;
-    padding: 28px;
-    border-radius: 24px;
-    box-shadow: 0 25px 50px rgba(0,0,0,0.6);
-    border: 2px solid #fde68a;
-    display: flex;
-    flex-direction: row;
-    gap: 28px;
-    align-items: center;
-    box-sizing: border-box;
-  }
-
-  .poster-img-box-wide {
-    width: 55%;
-    height: 380px;
+    height: 560px;
     background: #0d0d0d;
     border-radius: 16px;
     overflow: hidden;
     display: flex;
     align-items: center;
     justify-content: center;
+    margin-bottom: 18px;
     padding: 10px;
-    flex-shrink: 0;
+    box-sizing: border-box;
   }
 
-  #landscapeImg {
+  #portraitImg {
     max-width: 100%;
     max-height: 100%;
     object-fit: contain;
     border-radius: 10px;
   }
 
+  .portrait-card h3 {
+    font-size: 1.35rem;
+    color: #1f2937;
+    margin: 0 0 10px 0;
+  }
+
+  .landscape-card {
+    background: #fffbf5;
+    width: 1080px;
+    max-width: 97vw;
+    padding: 34px;
+    border-radius: 26px;
+    box-shadow: 0 25px 50px rgba(0,0,0,0.6);
+    border: 2px solid #fde68a;
+    display: flex;
+    flex-direction: row;
+    gap: 32px;
+    align-items: center;
+    box-sizing: border-box;
+    max-height: 88vh;
+  }
+
+  .poster-img-box-wide {
+    width: 60%;
+    height: 500px;
+    background: #0d0d0d;
+    border-radius: 18px;
+    overflow: hidden;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 12px;
+    flex-shrink: 0;
+    box-sizing: border-box;
+  }
+
+  #landscapeImg {
+    max-width: 100%;
+    max-height: 100%;
+    object-fit: contain;
+    border-radius: 12px;
+  }
+
   .poster-info-wide {
-    width: 45%;
+    width: 40%;
     display: flex;
     flex-direction: column;
     align-items: flex-start;
@@ -1101,21 +1219,21 @@ const timelineHierarchy = Object.keys(yearMap).sort().reverse().map(year => ({
   }
 
   .poster-info-wide h3 {
-    font-size: 1.4rem;
+    font-size: 1.5rem;
     color: #1f2937;
-    margin: 0 0 10px 0;
+    margin: 0 0 12px 0;
     line-height: 1.3;
   }
 
   .poster-story {
-    font-size: 0.95rem;
+    font-size: 1rem;
     color: #4b5563;
     background: #fffbeb;
-    padding: 12px 14px;
-    border-radius: 10px;
+    padding: 14px 16px;
+    border-radius: 12px;
     border: 1px solid #fef3c7;
-    margin: 0 0 15px 0;
-    line-height: 1.5;
+    margin: 0 0 18px 0;
+    line-height: 1.6;
     width: 100%;
     box-sizing: border-box;
   }
@@ -1127,30 +1245,46 @@ const timelineHierarchy = Object.keys(yearMap).sort().reverse().map(year => ({
     font-size: 0.85rem;
     color: #b45309;
     border-top: 1px dashed #fde68a;
-    padding-top: 10px;
+    padding-top: 12px;
     box-sizing: border-box;
   }
 
   .poster-header {
-    font-size: 1.25rem;
+    font-size: 1.35rem;
     font-weight: bold;
     color: #78350f;
     margin-bottom: 14px;
   }
 
   .poster-actions {
-    margin-top: 20px;
+    margin-top: 18px;
     display: flex;
     flex-direction: column;
     align-items: center;
     gap: 8px;
   }
 
+  .poster-download-btn {
+    background: #10b981;
+    color: white;
+    border: none;
+    padding: 10px 24px;
+    border-radius: 20px;
+    font-weight: 600;
+    cursor: pointer;
+    box-shadow: 0 4px 12px rgba(16, 185, 129, 0.35);
+    transition: transform 0.2s ease;
+  }
+  .poster-download-btn:hover {
+    transform: scale(1.05);
+    background: #059669;
+  }
+
   .poster-close-btn {
     background: #f59e0b;
     color: white;
     border: none;
-    padding: 10px 28px;
+    padding: 8px 20px;
     border-radius: 20px;
     font-weight: 600;
     cursor: pointer;
@@ -1167,15 +1301,17 @@ const timelineHierarchy = Object.keys(yearMap).sort().reverse().map(year => ({
     margin: 0;
   }
 
-  @media (max-width: 768px) {
+  @media (max-width: 900px) {
     .landscape-card {
       flex-direction: column;
-      width: 94vw;
-      padding: 18px;
+      width: 95vw;
+      padding: 20px;
+      max-height: 90vh;
+      overflow-y: auto;
     }
     .poster-img-box-wide {
       width: 100%;
-      height: 280px;
+      height: 340px;
     }
     .poster-info-wide {
       width: 100%;
@@ -1206,11 +1342,16 @@ const timelineHierarchy = Object.keys(yearMap).sort().reverse().map(year => ({
 
 <script define:vars={{ artworks }}>
   let currentIndex = 0;
+  let currentCategory = 'all';
+  let currentKeyword = '';
 
   const galleryRoot = document.getElementById('galleryRoot');
   const viewBtns = document.querySelectorAll('.view-btn');
   const filterBtns = document.querySelectorAll('.filter-btn');
   const cardWrappers = document.querySelectorAll('.card-wrapper');
+
+  const searchInputSidebar = document.getElementById('searchInputSidebar');
+  const searchInputMobile = document.getElementById('searchInputMobile');
 
   const lightbox = document.getElementById('lightbox');
   const lightboxImg = document.getElementById('lightbox-img');
@@ -1219,24 +1360,29 @@ const timelineHierarchy = Object.keys(yearMap).sort().reverse().map(year => ({
   const lightboxYear = document.getElementById('lightbox-year');
   const lightboxDesc = document.getElementById('lightbox-desc');
   const speakBtn = document.getElementById('speak-btn');
+  const shareBtn = document.getElementById('share-btn');
   const imgWrapper = document.getElementById('lightbox-img-wrapper');
 
   const portraitPosterBtn = document.getElementById('portraitPosterBtn');
   const landscapePosterBtn = document.getElementById('landscapePosterBtn');
 
   const portraitPosterModal = document.getElementById('portraitPosterModal');
+  const portraitCardNode = document.getElementById('portraitCardNode');
   const portraitImg = document.getElementById('portraitImg');
   const portraitTitle = document.getElementById('portraitTitle');
   const portraitDesc = document.getElementById('portraitDesc');
   const portraitDate = document.getElementById('portraitDate');
   const closePortraitBtn = document.getElementById('closePortraitBtn');
+  const downloadPortraitBtn = document.getElementById('downloadPortraitBtn');
 
   const landscapePosterModal = document.getElementById('landscapePosterModal');
+  const landscapeCardNode = document.getElementById('landscapeCardNode');
   const landscapeImg = document.getElementById('landscapeImg');
   const landscapeTitle = document.getElementById('landscapeTitle');
   const landscapeDesc = document.getElementById('landscapeDesc');
   const landscapeDate = document.getElementById('landscapeDate');
   const closeLandscapeBtn = document.getElementById('closeLandscapeBtn');
+  const downloadLandscapeBtn = document.getElementById('downloadLandscapeBtn');
 
   const wrappers = document.querySelectorAll('.image-wrapper');
   const closeBtn = document.querySelector('.lightbox-close');
@@ -1264,27 +1410,59 @@ const timelineHierarchy = Object.keys(yearMap).sort().reverse().map(year => ({
     });
   });
 
+  // 🔍 联合筛选核心逻辑（同时支持：分类筛选 + 关键词实时搜索）
+  function applyFilters() {
+    cardWrappers.forEach(wrapper => {
+      const cardCategory = wrapper.getAttribute('data-category');
+      const title = wrapper.querySelector('h2').textContent.toLowerCase();
+      const story = wrapper.querySelector('.story').textContent.toLowerCase();
+      const tagsNode = wrapper.querySelectorAll('.tag');
+
+      let tagMatch = false;
+      tagsNode.forEach(t => {
+        if (t.textContent.toLowerCase().includes(currentKeyword)) {
+          tagMatch = true;
+        }
+      });
+
+      const matchesCategory = (currentCategory === 'all' || cardCategory === currentCategory);
+      const matchesKeyword = !currentKeyword ||
+        title.includes(currentKeyword) ||
+        story.includes(currentKeyword) ||
+        tagMatch;
+
+      if (matchesCategory && matchesKeyword) {
+        wrapper.classList.remove('hidden');
+      } else {
+        wrapper.classList.add('hidden');
+      }
+    });
+  }
+
   filterBtns.forEach(btn => {
     btn.addEventListener('click', () => {
-      const category = btn.getAttribute('data-filter');
+      currentCategory = btn.getAttribute('data-filter');
       filterBtns.forEach(b => {
-        if (b.getAttribute('data-filter') === category) {
+        if (b.getAttribute('data-filter') === currentCategory) {
           b.classList.add('active');
         } else {
           b.classList.remove('active');
         }
       });
-
-      cardWrappers.forEach(wrapper => {
-        const cardCategory = wrapper.getAttribute('data-category');
-        if (category === 'all' || cardCategory === category) {
-          wrapper.classList.remove('hidden');
-        } else {
-          wrapper.classList.add('hidden');
-        }
-      });
+      applyFilters();
     });
   });
+
+  // 🔍 搜索输入事件监听（桌面端与移动端双向同步）
+  function handleSearchInput(e) {
+    currentKeyword = e.target.value.trim().toLowerCase();
+    if (searchInputSidebar) searchInputSidebar.value = e.target.value;
+    if (searchInputMobile) searchInputMobile.value = e.target.value;
+    applyFilters();
+  }
+
+  if (searchInputSidebar) searchInputSidebar.addEventListener('input', handleSearchInput);
+  if (searchInputMobile) searchInputMobile.addEventListener('input', handleSearchInput);
 
   const navItemBtns = document.querySelectorAll('.nav-item-btn');
   navItemBtns.forEach(btn => {
@@ -1367,6 +1545,36 @@ const timelineHierarchy = Object.keys(yearMap).sort().reverse().map(year => ({
   prevBtn.addEventListener('click', showPrev);
   nextBtn.addEventListener('click', showNext);
 
+  // 📤 Web Share API 原生分享支持 (已绑定当前画作参数 ?art=索引号)
+  shareBtn.addEventListener('click', async () => {
+    const art = artworks[currentIndex];
+    if (!art) return;
+
+    // 生成包含具体画作索引参数的专属链接
+    const shareUrl = `${window.location.origin}${window.location.pathname}?art=${currentIndex}`;
+
+    if (navigator.share) {
+      try {
+        await navigator.share({
+          title: art.title,
+          text: `✨ 七叶童画成林 - 欣赏小朋友的画作《${art.title}》：${art.description}`,
+          url: shareUrl,
+        });
+      } catch (err) {
+        if (err.name !== 'AbortError') {
+          console.error('分享失败:', err);
+        }
+      }
+    } else {
+      try {
+        await navigator.clipboard.writeText(shareUrl);
+        alert('已将该画作的专属链接复制到剪贴板，快去发给长辈或好友吧！');
+      } catch (e) {
+        alert('您的浏览器暂不支持快捷分享，可直接复制浏览器地址栏链接。');
+      }
+    }
+  });
+
   portraitPosterBtn.addEventListener('click', () => {
     const art = artworks[currentIndex];
     if (!art) return;
@@ -1401,6 +1609,38 @@ const timelineHierarchy = Object.keys(yearMap).sort().reverse().map(year => ({
 
   landscapePosterModal.addEventListener('click', (e) => {
     if (e.target === landscapePosterModal) landscapePosterModal.classList.remove('active');
+  });
+
+  // 📥 一键下载海报功能实现
+  function downloadCardAsImage(node, filename) {
+    if (typeof html2canvas === 'undefined') {
+      alert('图片生成库加载中，请稍后再试');
+      return;
+    }
+    html2canvas(node, {
+      scale: 2, // 2倍高清缩放
+      useCORS: true,
+      allowTaint: true,
+      backgroundColor: '#fffbf5'
+    }).then(canvas => {
+      const link = document.createElement('a');
+      link.download = `${filename}.png`;
+      link.href = canvas.toDataURL('image/png');
+      link.click();
+    }).catch(err => {
+      console.error(err);
+      alert('生成图片失败，请尝试直接截图保存。');
+    });
+  }
+
+  downloadPortraitBtn.addEventListener('click', () => {
+    const art = artworks[currentIndex];
+    downloadCardAsImage(portraitCardNode, `竖版海报_${art.title || '童画'}`);
+  });
+
+  downloadLandscapeBtn.addEventListener('click', () => {
+    const art = artworks[currentIndex];
+    downloadCardAsImage(landscapeCardNode, `横版纪念卡_${art.title || '童画'}`);
   });
 
   let touchStartX = 0;
@@ -1460,5 +1700,19 @@ const timelineHierarchy = Object.keys(yearMap).sort().reverse().map(year => ({
     };
 
     window.speechSynthesis.speak(utterance);
+  });
+
+  // 🚀 页面加载时检查 URL 是否带有特定画作参数 (自动弹窗定位)
+  window.addEventListener('DOMContentLoaded', () => {
+    const params = new URLSearchParams(window.location.search);
+    const artIndex = params.get('art');
+    if (artIndex !== null) {
+      const index = parseInt(artIndex, 10);
+      if (!isNaN(index) && artworks[index]) {
+        updateLightbox(index);
+        lightbox.classList.add('active');
+        document.body.style.overflow = 'hidden';
+      }
+    }
   });
 </script>
