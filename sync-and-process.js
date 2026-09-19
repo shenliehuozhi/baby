@@ -1,53 +1,33 @@
 /**
  * ==============================================================================
- * 数字儿童美术馆自动化流水线脚本 (sync-and-process.js)
- * ==============================================================================
- * 
- * 💡 脚本核心功能简介：
- * 1. 垃圾回收机制（自动清理）：若在 raw-images 文件夹中手动删除了某张原图，
- *    再次运行脚本时，会自动从 artworks.json 总账本中剔除该条目，并物理同步
- *    删除 public/uploads 目录中对应的 WebP 缓存图床文件。
- * 2. 智能资产自愈：若图床中的 .webp 文件因误删丢失，但 raw-images 原图还在，
- *    脚本会自动重新进行无损压缩恢复。
- * 3. 增量与内容去重：通过文件名与二进制文件的 MD5 哈希指纹双重校验，跳过已处理图片。
- * 4. 极致隐私保护：利用 Sharp 库自动剥离原图携带的所有 EXIF 摄影参数、相机型号与 GPS 定位。
- * 5. 多模型 AI 童趣赋能：支持 Gemini、DeepSeek、MiniMax，引导大模型抛弃枯燥的美术评论，
- *    转而捕捉宝宝天真烂漫的童话世界观。
+ * 数字儿童美术馆自动化流水线脚本 (Astro Content Collections + ID_标题文件名版)
  * ==============================================================================
  */
 
-// ================= 1. 模块导入与运行环境初始化 =================
-import fs from 'node:fs';          // Node.js 文件系统模块，用于读写文件和目录
-import path from 'node:path';      // Node.js 路径处理模块，用于拼接跨平台路径
-import crypto from 'node:crypto'; // Node.js 加密模块，用于生成随机哈希和计算 MD5
-import { fileURLToPath } from 'node:url'; // 用于在 ES Module 环境下解析文件路径
+import fs from 'node:fs';
+import path from 'node:path';
+import crypto from 'node:crypto';
+import { fileURLToPath } from 'node:url';
+import sharp from 'sharp';
 
-import sharp from 'sharp';       // 高性能图片处理库，负责裁剪、缩放和转码 WebP
-
-// 获取当前脚本所在目录的绝对路径（兼容 ES Module 规范）
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
-// 定义核心项目目录与文件路径常量
-const jsonPath = path.join(__dirname, 'src/data/artworks.json');       // 存放所有画作元数据的总账本
-const inputDir = path.join(__dirname, 'raw-images');                 // 存放家长投递原始照片的文件夹
-const outputDir = path.join(__dirname, 'public/uploads');             // 存放压缩后 WebP 图床的文件夹
+// 目录与路径常量定义
+const contentDir = path.join(__dirname, 'src/content/artworks'); // 独立内容集合文件夹
+const legacyJsonPath = path.join(__dirname, 'src/data/artworks.json'); // 旧版总账本（用于自动迁移）
+const inputDir = path.join(__dirname, 'raw-images');                 // 原始照片文件夹
+const outputDir = path.join(__dirname, 'public/uploads');             // WebP 图床文件夹
 
-// 自动初始化文件夹：若目录不存在则递归创建，防止因目录缺失导致程序崩溃
-if (!fs.existsSync(outputDir)) {
-  fs.mkdirSync(outputDir, { recursive: true });
-}
-if (!fs.existsSync(path.dirname(jsonPath))) {
-  fs.mkdirSync(path.dirname(jsonPath), { recursive: true });
-}
+// 自动初始化必要目录
+if (!fs.existsSync(outputDir)) fs.mkdirSync(outputDir, { recursive: true });
+if (!fs.existsSync(contentDir)) fs.mkdirSync(contentDir, { recursive: true });
 
 
 // ================= 2. 多模型 AI 智能视觉配置中心 =================
 const AI_CONFIG = {
-  enabled: true,        // 总开关：true 开启大模型童趣识图，false 关闭（降级为默认文件名和“暂无简介”）
-  provider: 'minimax', // 当前使用的大模型服务商，可选: 'gemini', 'minimax', 'deepseek'
-
-  // 各大主流 AI 厂商的配置映射表
+  enabled: true,
+  provider: 'minimax', // 可选: 'gemini', 'minimax', 'deepseek'
   configs: {
     gemini: {
       apiKey: process.env.GEMINI_API_KEY || '你的_GEMINI_API_KEY',
@@ -56,53 +36,39 @@ const AI_CONFIG = {
     },
     deepseek: {
       apiKey: process.env.DEEPSEEK_API_KEY || '你的_DEEPSEEK_API_KEY',
-      model: 'deepseek-chat', // 兼容多模态视觉的 DeepSeek 聊天模型
+      model: 'deepseek-chat',
       url: () => 'https://api.deepseek.com/chat/completions'
     },
     minimax: {
       apiKey: process.env.MINIMAX_API_KEY || 'sk-cp-Swg2zHMiJpO569-Rnsj4SB3JaEGrxNi6cxJpqggHHg8qFwWDH5TwyUHmzwxeGLBKW-WEii5HTyLvvpCOc_DwYzbpoKtuYlQa--6d7I7MOARatbMlpLZMBbY',
-      model: 'MiniMax-M3',     // MiniMax 多模态模型
+      model: 'MiniMax-M3',
       url: () => 'https://api.minimax.chat/v1/chat/completions'
     }
   }
 };
 
 
-// ================= 3. 底层密码学与辅助工具函数 =================
-
-/**
- * 生成完全无规律、不可预测的密码学随机资产文件名
- * 避免直接使用时间戳或自增数字导致文件名被外人规律化猜解
- * @returns {string} 形如 art_a7f9b2c1 的安全文件名
- */
+// ================= 3. 底层工具函数 =================
 function generateRandomFilename() {
-  const randomHex = crypto.randomBytes(6).toString('hex'); // 生成 12 位十六进制随机字符串
-  return `art_${randomHex}`;
+  return `art_${crypto.randomBytes(6).toString('hex')}`;
 }
 
-/**
- * 计算文件二进制缓冲区的 MD5 哈希指纹
- * 用于实现“内容级去重”（防止图片换了名字但内容完全一样时重复处理）
- * @param {Buffer} buffer - 图片文件的二进制数据
- * @returns {string} 32位 MD5 哈希串
- */
 function calculateMd5(buffer) {
   return crypto.createHash('md5').update(buffer).digest('hex');
 }
 
 /**
- * 统一的通用 AI 视觉接口适配器
- * 自动适配 Google Gemini 官方 API 与兼容 OpenAI 规范的其他大模型（DeepSeek / MiniMax）
- * @param {string} mimeType - 图片的 MIME 类型 (image/jpeg 或 image/png)
- * @param {string} base64Image - 经过 Base64 编码的图片字符串
- * @param {string} prompt - 策展/童趣提示词
- * @returns {Promise<string>} 大模型返回的原始文本内容
+ * 💡 新增：根据 ID 和标题生成安全的 JSON 文件名（格式：id_title.json）
  */
+function getArtFilename(id, title) {
+  const safeTitle = (title || '未命名画作').replace(/[\\/:*?"<>|\s]/g, '_').trim();
+  return `${id}_${safeTitle}.json`;
+}
+
 async function fetchAiVision(mimeType, base64Image, prompt) {
   const currentProvider = AI_CONFIG.provider;
   const cfg = AI_CONFIG.configs[currentProvider];
 
-  // 安全前置检查：确认当前选中的模型已配置了合法的 API Key，而不是默认占位符
   if (!cfg || cfg.apiKey.startsWith('你的_')) {
     throw new Error(`未配置 ${currentProvider} 的有效 API Key`);
   }
@@ -111,99 +77,79 @@ async function fetchAiVision(mimeType, base64Image, prompt) {
   let headers = { 'Content-Type': 'application/json' };
   let body = {};
 
-  // 分支 A：针对 Google Gemini 构建官方特有的请求体结构
   if (currentProvider === 'gemini') {
     requestUrl = cfg.url(cfg.model, cfg.apiKey);
-    body = {
-      contents: [{
-        parts: [
-          { text: prompt },
-          { inline_data: { mime_type: mimeType, data: base64Image } }
-        ]
-      }]
-    };
-  } 
-  // 分支 Б：针对 DeepSeek、MiniMax 等兼容 OpenAI 标准多模态规范构建请求体
-  else {
+    body = { contents: [{ parts: [{ text: prompt }, { inline_data: { mime_type: mimeType, data: base64Image } }] }] };
+  } else {
     requestUrl = cfg.url();
     headers['Authorization'] = `Bearer ${cfg.apiKey}`;
     body = {
       model: cfg.model,
-      messages: [
-        {
-          role: 'user',
-          content: [
-            { type: 'text', text: prompt },
-            { type: 'image_url', image_url: { url: `data:${mimeType};base64,${base64Image}` } }
-          ]
-        }
-      ]
+      messages: [{ role: 'user', content: [{ type: 'text', text: prompt }, { type: 'image_url', image_url: { url: `data:${mimeType};base64,${base64Image}` } }] }]
     };
   }
 
-  // 发起标准 Fetch 异步网络请求
-  const response = await fetch(requestUrl, {
-    method: 'POST',
-    headers,
-    body: JSON.stringify(body)
-  });
+  const response = await fetch(requestUrl, { method: 'POST', headers, body: JSON.stringify(body) });
+  
+  if (!response.ok) {
+    const errorBody = await response.text();
+    throw new Error(`API 请求失败 [HTTP ${response.status}]:${errorBody}`);
+  }
 
   const data = await response.json();
-  let textResult = '';
+  let textResult = currentProvider === 'gemini' ? data.candidates?.[0]?.content?.parts?.[0]?.text : data.choices?.[0]?.message?.content;
 
-  // 根据不同的服务商从返回的 JSON 结构中精准提取文本
-  if (currentProvider === 'gemini') {
-    textResult = data.candidates?.[0]?.content?.parts?.[0]?.text;
-  } else {
-    textResult = data.choices?.[0]?.message?.content;
-  }
-
-  if (!textResult) {
-    throw new Error('大模型未返回有效内容');
-  }
-
+  if (!textResult) throw new Error('大模型响应结构异常，未返回有效内容');
   return textResult;
 }
 
-/**
- * 核心包装函数：调用视觉模型获取充满童趣的艺术品标题与描述
- * 内部已集成深度思考标签过滤与 JSON 解析清洗容错
- * @param {string} mimeType - 图片类型
- * @param {string} base64Image - 图片 Base64 数据
- * @returns {Promise<Object|null>} 解析后的艺术品元数据对象
- */
+// 针对新图片：生成完整元数据（标题、童趣描述、标签）
 async function getAiMetadata(mimeType, base64Image) {
   if (!AI_CONFIG.enabled) return null;
-
   try {
     console.log(`🤖 [AI (${AI_CONFIG.provider})] 正在聆听宝宝画里的奇思妙想...`);
-    
-    // 🌟 定制化的童趣 Prompt：严禁枯燥的美术评论，专门引导大模型输出童话视角的解读
     const prompt = `请作为一个充满童心、懂得欣赏儿童画的伙伴，来观察这幅画。
     要求：
     1. 绝对不要写枯燥的美术评论、构图分析或色彩技法评价。
     2. 要像宝宝在跟你讲故事一样，充满异想天开、天真烂漫的童趣。
     3. 描述可以带上“宝宝说……”或者直接用充满童话色彩的视角来写。
+    4. 请为这幅画提炼 3 到 5 个生动好玩的短标签（例如：太空奇遇、神奇动物、五彩森林等）。
     
     请严格以纯 JSON 格式返回（不要包含任何 markdown 符号如 \`\`\`json）：
     {
       "title": "一个充满童趣、生动好玩的简短标题",
-      "description": "一段充满幻想与童真的描述（50-100字左右，展现宝宝眼中的奇妙世界）"
+      "description": "一段充满幻想与童真的描述（50-100字左右，展现宝宝眼中的奇妙世界）",
+      "tags": ["标签1", "标签2", "标签3"]
     }`;
 
-    // 获取大模型原始回复文本
     const rawText = await fetchAiVision(mimeType, base64Image, prompt);
-
-    // 🛡️ 兼容处理：自动剔除某些推理模型（如 DeepSeek-R1）自带的 <think>...</think> 内部思考过程
     const noThinkText = rawText.replace(/<think>[\s\S]*?<\/think>/g, '').trim();
-
-    // 清理可能附带的 markdown 标记，并将其反序列化为安全的 JSON 对象
     const cleanJsonStr = noThinkText.replace(/```json/g, '').replace(/```/g, '').trim();
     return JSON.parse(cleanJsonStr);
-
   } catch (error) {
-    console.warn(`⚠️ [AI] 童趣文案生成失败 (${error.message})，已平稳降级为默认文件名。`);
+    console.warn(`⚠️ [AI] 童趣文案生成失败: ${error.message}`);
     return null;
+  }
+}
+
+// 针对旧图片：仅安全补齐缺失的标签
+async function getAiTagsOnly(mimeType, base64Image) {
+  if (!AI_CONFIG.enabled) return ["童趣时光"];
+  try {
+    const prompt = `请观察这幅儿童画，为它提炼 3 到 5 个生动好玩的短标签（例如：太空奇遇、神奇动物、五彩森林等）。
+    请严格以纯 JSON 格式返回（不要包含任何 markdown 符号如 \`\`\`json）：
+    {
+      "tags": ["标签1", "标签2", "标签3"]
+    }`;
+
+    const rawText = await fetchAiVision(mimeType, base64Image, prompt);
+    const noThinkText = rawText.replace(/<think>[\s\S]*?<\/think>/g, '').trim();
+    const cleanJsonStr = noThinkText.replace(/```json/g, '').replace(/```/g, '').trim();
+    const parsed = JSON.parse(cleanJsonStr);
+    return parsed.tags && parsed.tags.length > 0 ? parsed.tags : ["童趣时光"];
+  } catch (error) {
+    console.error(`❌ [AI 标签补标失败详情]:`, error.message);
+    return ["童趣时光"];
   }
 }
 
@@ -212,120 +158,135 @@ async function getAiMetadata(mimeType, base64Image) {
 async function runPipeline() {
   try {
     // -------------------------------------------------------------
-    // 步骤 1：安全读取并解析 artworks.json 总账本数据（加入防爆类型校验）
+    // 步骤 0：平滑迁移旧版 artworks.json 到 Content Collections 目录
     // -------------------------------------------------------------
-    let artworks = [];
-    if (fs.existsSync(jsonPath)) {
+    if (fs.existsSync(legacyJsonPath) && fs.readdirSync(contentDir).length === 0) {
+      console.log(`📦 检测到旧版 artworks.json，正在自动迁移为 Content Collections 独立文件...`);
       try {
-        const fileContent = fs.readFileSync(jsonPath, 'utf-8').trim();
-        if (fileContent) {
-          const parsed = JSON.parse(fileContent);
-          // 必须确保解析出来的是数组，否则强行重置，防止后续 .filter / .map 报错崩溃
-          if (Array.isArray(parsed)) {
-            artworks = parsed;
-          } else {
-            console.warn(`⚠️ [警告] artworks.json 格式异常（不是数组），已自动重置为空数组。`);
+        const legacyData = JSON.parse(fs.readFileSync(legacyJsonPath, 'utf-8'));
+        if (Array.isArray(legacyData)) {
+          for (const item of legacyData) {
+            if (!item.id) item.id = generateRandomFilename();
+            if (!item.tags) item.tags = ["童趣时光"];
+            
+            // 💡 采用 ID + 标题 命名规则
+            const filename = getArtFilename(item.id, item.title);
+            const filePath = path.join(contentDir, filename);
+            fs.writeFileSync(filePath, JSON.stringify(item, null, 2), 'utf-8');
           }
+          console.log(`✨ 成功迁移 ${legacyData.length} 个历史画作条目到 ${contentDir}`);
+          fs.renameSync(legacyJsonPath, `${legacyJsonPath}.bak`);
         }
       } catch (e) {
-        console.warn(`⚠️ [警告] artworks.json 解析失败，已自动重置为空数组。`);
+        console.warn(`⚠️ 旧版 artworks.json 迁移失败: ${e.message}`);
       }
     }
 
-    console.log(`\n🔍 开始执行资产体检与自愈审计...`);
+    // -------------------------------------------------------------
+    // 步骤 1：从 src/content/artworks/ 读取所有独立的画作条目
+    // -------------------------------------------------------------
+    let artworksMap = new Map();
+    const contentFiles = fs.existsSync(contentDir) ? fs.readdirSync(contentDir).filter(f => f.endsWith('.json')) : [];
+
+    for (const file of contentFiles) {
+      const filePath = path.join(contentDir, file);
+      try {
+        const content = JSON.parse(fs.readFileSync(filePath, 'utf-8'));
+        if (content.id) {
+          artworksMap.set(content.id, { data: content, filePath });
+        }
+      } catch (e) {
+        console.warn(`⚠️ 解析文件失败跳过: ${file}`);
+      }
+    }
+
+    console.log(`\n🔍 开始执行资产体检与自愈审计（共托管条目: ${artworksMap.size}）...`);
 
     // -------------------------------------------------------------
-    // 步骤 2：阶段零 - 孤儿资产自动清理（垃圾回收机制）
-    // 检查 raw-images 目录下的所有原文件名。若总账本中有记录，
-    // 但 raw-images 中对应的原图已被用户手动删除，则同步进行联动清理
+    // 步骤 2：垃圾回收机制
     // -------------------------------------------------------------
     const rawFilesNow = fs.existsSync(inputDir) ? fs.readdirSync(inputDir) : [];
-    const initialCount = artworks.length;
-    
-    artworks = artworks.filter(item => {
-      // 如果该条目有记录源文件，但在 raw-images 中已经找不到了
-      if (item.sourceFile && !rawFilesNow.includes(item.sourceFile)) {
-        const targetWebpPath = path.join(outputDir, path.basename(item.image));
-        
-        // 顺便把 public/uploads 里的对应 WebP 缓存文件也物理删除
-        if (fs.existsSync(targetWebpPath)) {
-          fs.unlinkSync(targetWebpPath);
-          console.log(`🗑️ [自动清理] 发现原图已删除，已同步移除图床文件: ${path.basename(item.image)}`);
-        }
-        console.log(`🗑️ [自动清理] 已从总账本中剔除失效条目: "${item.title}"`);
-        return false; // 从数组中过滤掉该条目
-      }
-      return true; // 保留正常条目
-    });
+    let prunedCount = 0;
 
-    const prunedCount = initialCount - artworks.length;
-    if (prunedCount > 0) {
-      console.log(`🧹 成功清理失效孤儿资产 ${prunedCount} 个。\n`);
+    for (const [id, entry] of artworksMap.entries()) {
+      const item = entry.data;
+      if (item.sourceFile && !rawFilesNow.includes(item.sourceFile)) {
+        if (item.image) {
+          const targetWebpPath = path.join(__dirname, 'public', item.image);
+          if (fs.existsSync(targetWebpPath)) fs.unlinkSync(targetWebpPath);
+        }
+        if (fs.existsSync(entry.filePath)) fs.unlinkSync(entry.filePath);
+
+        artworksMap.delete(id);
+        prunedCount++;
+        console.log(`🗑️ [自动清理] 原图已删除，已同步移除条目与图床文件: "${item.title}"`);
+      }
     }
 
-    let healedCount = 0;       // 统计物理文件自愈恢复的数量
-    let aiEnrichedCount = 0;   // 统计 AI 智能重塑文案的数量
+    if (prunedCount > 0) console.log(`🧹 成功清理失效孤儿资产 ${prunedCount} 个。\n`);
+
+    let healedCount = 0;
+    let tagSupplementCount = 0;
 
     // -------------------------------------------------------------
-    // 步骤 3：阶段一 - 物理资产自愈检查 & 旧文案 AI 智能升级
+    // 步骤 3：物理资产自愈 & 现有数据安全补标（文件名自动同步更新）
     // -------------------------------------------------------------
-    for (const item of artworks) {
+    for (const [id, entry] of artworksMap.entries()) {
+      const item = entry.data;
       if (!item.image) continue;
-      const webpFileName = path.basename(item.image);
-      const targetWebpPath = path.join(outputDir, webpFileName);
+      const targetWebpPath = path.join(__dirname, 'public', item.image);
+      const sourcePath = item.sourceFile ? path.join(inputDir, item.sourceFile) : null;
 
       let imageBuffer = null;
-      let sourcePath = item.sourceFile ? path.join(inputDir, item.sourceFile) : null;
+      let isModified = false;
 
-      // 任务 A：物理自愈 —— 如果图床目录中的 .webp 文件丢失，但原始照片还在，自动重新压制生成
-      if (!fs.existsSync(targetWebpPath)) {
-        console.warn(`⚠️ [自愈] 发现文件丢失: ${webpFileName}`);
-        if (sourcePath && fs.existsSync(sourcePath)) {
-          imageBuffer = fs.readFileSync(sourcePath);
-          await sharp(imageBuffer)
-            .rotate()                                               // 根据手机拍摄的 EXIF 自动旋转正方向
-            .resize({ width: 1920, withoutEnlargement: true })     // 限制最大宽度为 1920px，防止过大
-            .webp({ quality: 80 })                                  // 转换为高压缩率的 WebP 格式
-            .toFile(targetWebpPath);
-          healedCount++;
-          console.log(`✨ [自愈] 成功从原图重新压缩生成 WebP。`);
-        }
+      // 任务 A：物理自愈
+      if (!fs.existsSync(targetWebpPath) && sourcePath && fs.existsSync(sourcePath)) {
+        imageBuffer = fs.readFileSync(sourcePath);
+        await sharp(imageBuffer)
+          .rotate()
+          .resize({ width: 1920, withoutEnlargement: true })
+          .webp({ quality: 80 })
+          .toFile(targetWebpPath);
+        healedCount++;
+        console.log(`✨ [自愈] 成功从原图重新压缩生成 WebP: ${path.basename(item.image)}`);
       }
 
-      // 任务 B：AI 文案重塑 —— 若发现旧条目仍然是老旧占位符，顺手升级为最新的童趣故事文案
-      if (AI_CONFIG.enabled && (item.description === "暂无简介" || item.description.includes("混合媒材") || item.description.includes("水彩晕染"))) {
-        if (!imageBuffer && sourcePath && fs.existsSync(sourcePath)) {
-          imageBuffer = fs.readFileSync(sourcePath);
-        }
+      // 任务 B：对已有旧数据安全补齐标签
+      if (!item.tags || !Array.isArray(item.tags) || item.tags.length === 0 || (item.tags.length === 1 && item.tags[0] === '童趣时光')) {
+        if (!imageBuffer && sourcePath && fs.existsSync(sourcePath)) imageBuffer = fs.readFileSync(sourcePath);
         if (imageBuffer) {
           const mimeType = item.sourceFile?.endsWith('.png') ? 'image/png' : 'image/jpeg';
           const base64Image = imageBuffer.toString('base64');
-          console.log(`🤖 [AI 童趣重塑] 正在为条目 "${item.title}" 赋予童话视角...`);
-          const aiData = await getAiMetadata(mimeType, base64Image);
-          if (aiData) {
-            item.title = aiData.title || item.title;
-            item.description = aiData.description || item.description;
-            aiEnrichedCount++;
-            console.log(`✨ [童趣重塑成功] 新标题: ${item.title}`);
-          }
+          console.log(`🏷️ [安全补标] 发现旧画作 "${item.title}" 标签缺失或单一，正在通过 AI 重新提炼...`);
+          const tags = await getAiTagsOnly(mimeType, base64Image);
+          item.tags = tags;
+          isModified = true;
+          tagSupplementCount++;
+          console.log(`   ✨ 标签补齐成功 -> ${item.tags.join(', ')}`);
         }
+      }
+
+      // 💡 检查并确保存储的文件名符合 `id_title.json` 最新规范
+      const expectedFilename = getArtFilename(item.id, item.title);
+      const expectedFilePath = path.join(contentDir, expectedFilename);
+
+      if (isModified || entry.filePath !== expectedFilePath) {
+        // 如果旧文件名不符合带标题的新规范，清理掉旧文件
+        if (fs.existsSync(entry.filePath) && entry.filePath !== expectedFilePath) {
+          fs.unlinkSync(entry.filePath);
+        }
+        fs.writeFileSync(expectedFilePath, JSON.stringify(item, null, 2), 'utf-8');
+        entry.filePath = expectedFilePath; // 更新引用路径
       }
     }
 
-    if (healedCount > 0 || aiEnrichedCount > 0) {
-      console.log(`🎉 审计修复完成：自愈文件 ${healedCount} 个，童趣文案重塑 ${aiEnrichedCount} 个。\n`);
-    } else {
-      console.log(`✅ 资产状态健康。\n`);
-    }
-
     // -------------------------------------------------------------
-    // 步骤 4：阶段二 - 带实时进度的增量扫描与转码流水线
+    // 步骤 4：增量扫描与新图转码流水线
     // -------------------------------------------------------------
-    // 提取已处理过的原文件名集合与 MD5 集合，用于极速去重
-    const processedSourceFiles = new Set(artworks.map(item => item.sourceFile).filter(Boolean));
-    const processedMd5s = new Set(artworks.map(item => item.md5).filter(Boolean));
+    const processedSourceFiles = new Set([...artworksMap.values()].map(e => e.data.sourceFile).filter(Boolean));
+    const processedMd5s = new Set([...artworksMap.values()].map(e => e.data.md5).filter(Boolean));
 
-    // 读取 raw-images 文件夹下所有的图片格式文件
     const rawFiles = fs.readdirSync(inputDir).filter(file => /\.(jpg|jpeg|png|webp)$/i.test(file));
     const totalFiles = rawFiles.length;
 
@@ -336,20 +297,18 @@ async function runPipeline() {
 
     console.log(`📦 共扫描到 ${totalFiles} 张原图，开始检查增量更新...\n`);
 
-    let processedCount = 0; 
-    let skippedCount = 0;   
-    let currentIndex = 0;   
+    let processedCount = 0;
+    let skippedCount = 0;
+    let currentIndex = 0;
 
-    // 循环遍历每一张原始照片
     for (const filename of rawFiles) {
       currentIndex++;
-      const progress = `(${currentIndex}/${totalFiles})`; 
+      const progress = `(${currentIndex}/${totalFiles})`;
       const inputPath = path.join(inputDir, filename);
-      
+
       const imageBuffer = fs.readFileSync(inputPath);
       const fileMd5 = calculateMd5(imageBuffer);
 
-      // 去重检查：如果文件名或文件内容 MD5 已经存在于总账本中，直接跳过
       if (processedSourceFiles.has(filename) || processedMd5s.has(fileMd5)) {
         skippedCount++;
         console.log(`⏩ ${progress} 跳过重复: ${filename}`);
@@ -359,66 +318,63 @@ async function runPipeline() {
       processedCount++;
       console.log(`✨ ${progress} 发现新原图，正在捕捉童真幻想: ${filename}`);
 
-      // 生成安全的随机文件名和目标路径
-      const randomBaseName = generateRandomFilename();
-      const outputWebpName = `${randomBaseName}.webp`;
+      const randomId = `art_${Date.now()}_${Math.floor(Math.random() * 1000)}`;
+      const outputWebpName = `${generateRandomFilename()}.webp`;
       const outputPath = path.join(outputDir, outputWebpName);
       const imagePathForJson = `/uploads/${outputWebpName}`;
 
       const base64Image = imageBuffer.toString('base64');
       const mimeType = filename.endsWith('.png') ? 'image/png' : 'image/jpeg';
 
-      // 使用 Sharp 进行图片处理：清除 EXIF 隐私、等比缩放、转码为 WebP
       await sharp(inputPath)
-        .rotate()                                               // 自动纠正手机拍摄时的旋转角度
-        .resize({ width: 1920, withoutEnlargement: true })     // 限制最大宽度 1920px，保护画质同时大幅瘦身
-        .webp({ quality: 80 })                                  // 压缩为 80% 画质的 WebP
+        .rotate()
+        .resize({ width: 1920, withoutEnlargement: true })
+        .webp({ quality: 80 })
         .toFile(outputPath);
 
-      console.log(`   🔒 EXIF 隐私已清除，生成随机文件名 -> ${outputWebpName}`);
+      console.log(`   🔒 EXIF 隐私已清除，生成图床缓存 -> ${outputWebpName}`);
 
-      let title = path.parse(filename).name; // 默认标题为原文件名
-      let description = "暂无简介";             // 默认描述
+      let title = path.parse(filename).name;
+      let description = "暂无简介";
+      let tags = ["童趣时光"];
 
-      // 如果开启了 AI，调用视觉模型生成专属童趣标题和描述
       if (AI_CONFIG.enabled) {
         const aiData = await getAiMetadata(mimeType, base64Image);
         if (aiData) {
           title = aiData.title || title;
           description = aiData.description || description;
-          console.log(`   🎨 童趣文案生成成功 -> 标题: ${title}`);
+          tags = aiData.tags || tags;
+          console.log(`   🎨 童趣文案与标签生成成功 -> 标题: ${title} | 标签: ${tags.join(', ')}`);
         }
       }
 
-      // 将新画作的元数据结构压入 artworks 数组
-      artworks.push({
-        id: `art_${Date.now()}_${Math.floor(Math.random() * 1000)}`,
+      const newArtItem = {
+        id: randomId,
         title,
         image: imagePathForJson,
-        sourceFile: filename, 
-        md5: fileMd5,         
-        date: new Date().toISOString().split('T')[0], // 自动记录当前日期 (YYYY-MM-DD)
-        description
-      });
+        sourceFile: filename,
+        md5: fileMd5,
+        date: new Date().toISOString().split('T')[0],
+        description,
+        tags
+      };
 
-      // 动态将新文件加入已处理集合中
+      // 💡 采用 ID + 标题 命名规则写入独立文件
+      const newFilename = getArtFilename(randomId, title);
+      const newFilePath = path.join(contentDir, newFilename);
+      fs.writeFileSync(newFilePath, JSON.stringify(newArtItem, null, 2), 'utf-8');
+
       processedSourceFiles.add(filename);
       processedMd5s.add(fileMd5);
     }
 
-    // -------------------------------------------------------------
-    // 步骤 5：将最新的完整画作数组持久化写回到 artworks.json 总账本中
-    // -------------------------------------------------------------
-    fs.writeFileSync(jsonPath, JSON.stringify(artworks, null, 2), 'utf-8');
-
-    // 打印流水线大功告成的统计报表
     console.log(`\n========================================`);
     console.log(`🎉 任务全部圆满完成！`);
     console.log(`📊 总计扫描: ${totalFiles} 张`);
-    console.log(`✨ 成功新增: ${processedCount} 张`);
+    console.log(`✨ 成功新增: ${processedCount} 张独立文件`);
     console.log(`⏩ 跳过重复: ${skippedCount} 张`);
     if (healedCount > 0) console.log(`🔄 自愈修复: ${healedCount} 张`);
-    if (aiEnrichedCount > 0) console.log(`🎨 童趣文案重塑: ${aiEnrichedCount} 个`);
+    if (tagSupplementCount > 0) console.log(`🏷️ 安全补标: ${tagSupplementCount} 个旧条目`);
     console.log(`========================================\n`);
 
   } catch (error) {
@@ -426,5 +382,4 @@ async function runPipeline() {
   }
 }
 
-// 立即执行自动化流水线
 runPipeline();

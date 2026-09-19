@@ -1,9 +1,13 @@
 ---
 import Layout from '../layouts/Layout.astro';
-import artworksData from '../data/artworks.json';
+import { getCollection } from 'astro:content';
 
-// 🛡️ 智能兜底、年份/月份提取与保留原始索引
-const artworks = artworksData.map((art, index) => {
+// 1. 使用 Content Collections 获取所有独立的画作数据
+const rawArtworks = await getCollection('artworks');
+
+// 2. 智能兜底、年份/月份提取，并按日期倒序排序，同时赋予正确的排序索引
+const artworks = rawArtworks.map((entry) => {
+  const art = entry.data;
   const yearStr = art.date ? art.date.substring(0, 4) : '2026';
   const monthStr = art.date ? art.date.substring(0, 7) : '2026-01';
   return {
@@ -13,9 +17,12 @@ const artworks = artworksData.map((art, index) => {
     date: art.date || '2026-01-01',
     year: `${yearStr}年`,
     month: monthStr,
-    originalIndex: index
   };
-}).sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
+}).sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime())
+  .map((art, index) => ({
+    ...art,
+    originalIndex: index // 确保索引与排序后的数组位置严格一致，供灯箱弹窗使用
+  }));
 
 // 📊 计算成长统计数据
 const totalArtworks = artworks.length;
@@ -82,7 +89,7 @@ const timelineHierarchy = Object.keys(yearMap).sort().reverse().map(year => ({
       </div>
     </div>
 
-    <!-- 📱 移动端顶部显示的备用控制栏（在宽屏下隐藏，由左侧边栏替代） -->
+    <!-- 📱 移动端顶部显示的备用控制栏 -->
     <div class="mobile-control-bar">
       <div class="view-switcher">
         <button class="view-btn active" data-view="grid">🖼️ 网格</button>
@@ -182,7 +189,7 @@ const timelineHierarchy = Object.keys(yearMap).sort().reverse().map(year => ({
     </div>
   </div>
 
-  <!-- 🎬 1. 竖版电影海报预览模态框（尺寸加大） -->
+  <!-- 🎬 1. 竖版电影海报预览模态框 -->
   <div id="portraitPosterModal" class="poster-modal">
     <div class="portrait-card">
       <div class="poster-header">✨ 七叶童画成林 ✨</div>
@@ -202,7 +209,7 @@ const timelineHierarchy = Object.keys(yearMap).sort().reverse().map(year => ({
     </div>
   </div>
 
-  <!-- 🖼️ 2. 横版宽屏纪念卡预览模态框（尺寸加大） -->
+  <!-- 🖼️ 2. 横版宽屏纪念卡预览模态框 -->
   <div id="landscapePosterModal" class="poster-modal">
     <div class="landscape-card">
       <div class="poster-img-box-wide">
@@ -226,7 +233,7 @@ const timelineHierarchy = Object.keys(yearMap).sort().reverse().map(year => ({
 </Layout>
 
 <style>
-  /* 整体页面配置 */
+  /* 保持原有的样式不变 */
   .gallery-container {
     width: 100%;
     margin: 0 auto;
@@ -254,7 +261,6 @@ const timelineHierarchy = Object.keys(yearMap).sort().reverse().map(year => ({
     font-size: 1rem;
   }
 
-  /* 📊 统计面板样式 */
   .stats-panel {
     max-width: 650px;
     margin: 0 auto 30px auto;
@@ -287,7 +293,6 @@ const timelineHierarchy = Object.keys(yearMap).sort().reverse().map(year => ({
     font-weight: 500;
   }
 
-  /* 🎛️ 左侧悬浮控制与筛选侧边栏 */
   .control-sidebar {
     position: fixed;
     left: 20px;
@@ -389,7 +394,6 @@ const timelineHierarchy = Object.keys(yearMap).sort().reverse().map(year => ({
     box-shadow: 0 2px 8px rgba(245, 158, 11, 0.3);
   }
 
-  /* 📱 移动端控制栏默认隐藏，宽屏时由侧边栏替代 */
   .mobile-control-bar {
     display: none;
   }
@@ -457,7 +461,6 @@ const timelineHierarchy = Object.keys(yearMap).sort().reverse().map(year => ({
     }
   }
 
-  /* 📅 右侧悬浮层级日期导航样式 */
   .date-nav-bar {
     position: fixed;
     right: 20px;
@@ -548,7 +551,6 @@ const timelineHierarchy = Object.keys(yearMap).sort().reverse().map(year => ({
     display: none !important;
   }
 
-  /* 网格与时间轴视图形态 */
   .gallery-container.is-grid .gallery-content {
     display: flex;
     flex-wrap: wrap;
@@ -669,7 +671,6 @@ const timelineHierarchy = Object.keys(yearMap).sort().reverse().map(year => ({
     }
   }
 
-  /* 通用卡片样式 */
   .card {
     background: white;
     border-radius: 18px;
@@ -801,7 +802,6 @@ const timelineHierarchy = Object.keys(yearMap).sort().reverse().map(year => ({
     font-size: 0.85rem;
   }
 
-  /* Lightbox 弹窗样式 */
   .lightbox-overlay {
     display: none;
     position: fixed;
@@ -983,7 +983,6 @@ const timelineHierarchy = Object.keys(yearMap).sort().reverse().map(year => ({
   .lightbox-prev { left: 10px; }
   .lightbox-next { right: 10px; }
 
-  /* Modal 通用遮罩 */
   .poster-modal {
     display: none;
     position: fixed;
@@ -1005,7 +1004,6 @@ const timelineHierarchy = Object.keys(yearMap).sort().reverse().map(year => ({
     display: flex;
   }
 
-  /* 🎬 1. 竖版电影海报卡片样式（尺寸显著放大） */
   .portrait-card {
     background: #fffbf5;
     width: 440px;
@@ -1047,7 +1045,6 @@ const timelineHierarchy = Object.keys(yearMap).sort().reverse().map(year => ({
     margin: 0 0 8px 0;
   }
 
-  /* 🖼️ 2. 横版宽屏纪念卡卡片样式（尺寸显著放大） */
   .landscape-card {
     background: #fffbf5;
     width: 880px;
@@ -1207,7 +1204,6 @@ const timelineHierarchy = Object.keys(yearMap).sort().reverse().map(year => ({
   }
 </style>
 
-<!-- ⚡ 交互逻辑脚本 -->
 <script define:vars={{ artworks }}>
   let currentIndex = 0;
 
@@ -1250,7 +1246,6 @@ const timelineHierarchy = Object.keys(yearMap).sort().reverse().map(year => ({
   viewBtns.forEach(btn => {
     btn.addEventListener('click', () => {
       const viewType = btn.getAttribute('data-view');
-      // 同步所有视图按钮状态（侧边栏和移动端可能同时存在）
       viewBtns.forEach(b => {
         if (b.getAttribute('data-view') === viewType) {
           b.classList.add('active');
@@ -1272,7 +1267,6 @@ const timelineHierarchy = Object.keys(yearMap).sort().reverse().map(year => ({
   filterBtns.forEach(btn => {
     btn.addEventListener('click', () => {
       const category = btn.getAttribute('data-filter');
-      // 同步所有分类按钮状态
       filterBtns.forEach(b => {
         if (b.getAttribute('data-filter') === category) {
           b.classList.add('active');
