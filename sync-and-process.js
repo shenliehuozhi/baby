@@ -1,12 +1,13 @@
 /**
  * ==============================================================================
- * 数字儿童美术馆自动化流水线脚本 (Astro Content Collections + ID_标题文件名版)
+ * 数字儿童美术馆自动化流水线脚本 (Astro Content Collections + 终端交互式开关)
  * ==============================================================================
  */
 
 import fs from 'node:fs';
 import path from 'node:path';
 import crypto from 'node:crypto';
+import readline from 'node:readline';
 import { fileURLToPath } from 'node:url';
 import sharp from 'sharp';
 
@@ -24,7 +25,7 @@ if (!fs.existsSync(outputDir)) fs.mkdirSync(outputDir, { recursive: true });
 if (!fs.existsSync(contentDir)) fs.mkdirSync(contentDir, { recursive: true });
 
 
-// ================= 2. 多模型 AI 智能视觉配置中心 =================
+// ================= 1. 多模型 AI 智能视觉配置中心 =================
 const AI_CONFIG = {
   enabled: true,
   provider: 'minimax', // 可选: 'gemini', 'minimax', 'deepseek'
@@ -48,7 +49,7 @@ const AI_CONFIG = {
 };
 
 
-// ================= 3. 底层工具函数 =================
+// ================= 2. 底层工具函数 =================
 function generateRandomFilename() {
   return `art_${crypto.randomBytes(6).toString('hex')}`;
 }
@@ -58,11 +59,25 @@ function calculateMd5(buffer) {
 }
 
 /**
- * 💡 新增：根据 ID 和标题生成安全的 JSON 文件名（格式：id_title.json）
+ * 💡 根据 ID 和标题生成安全的 JSON 文件名（格式：id_title.json）
  */
 function getArtFilename(id, title) {
   const safeTitle = (title || '未命名画作').replace(/[\\/:*?"<>|\s]/g, '_').trim();
   return `${id}_${safeTitle}.json`;
+}
+
+/**
+ * 💡 终端交互询问辅助函数
+ */
+function askQuestion(query) {
+  const rl = readline.createInterface({
+    input: process.stdin,
+    output: process.stdout
+  });
+  return new Promise(resolve => rl.question(query, answer => {
+    rl.close();
+    resolve(answer.trim());
+  }));
 }
 
 async function fetchAiVision(mimeType, base64Image, prompt) {
@@ -154,9 +169,21 @@ async function getAiTagsOnly(mimeType, base64Image) {
 }
 
 
-// ================= 4. 主执行业务管道 (Pipeline) =================
+// ================= 3. 主执行业务管道 (Pipeline) =================
 async function runPipeline() {
   try {
+    console.log(`\n🎨 欢迎使用儿童美术馆自动化同步工具`);
+    
+    // 💡 在终端实时询问是否开启垃圾回收（直接回车或输入 n 则默认关闭，安全保护线上作品）
+    const answer = await askQuestion(`❓ 是否开启【垃圾回收机制】？\n   (开启后: 若本地 raw-images 原图被删除，线上画作也会自动同步清理)\n   👉 请选择是否开启垃圾回收？(y/N，直接回车默认关闭): `);
+    const pruneDeletedArtworks = answer.toLowerCase() === 'y';
+
+    if (pruneDeletedArtworks) {
+      console.log(`⚠️ 【已开启】垃圾回收：本地删除原图将同步清理线上画作。\n`);
+    } else {
+      console.log(`🛡️ 【已关闭】垃圾回收：本地删除原图不影响线上，画作安全保留。\n`);
+    }
+
     // -------------------------------------------------------------
     // 步骤 0：平滑迁移旧版 artworks.json 到 Content Collections 目录
     // -------------------------------------------------------------
@@ -169,7 +196,6 @@ async function runPipeline() {
             if (!item.id) item.id = generateRandomFilename();
             if (!item.tags) item.tags = ["童趣时光"];
             
-            // 💡 采用 ID + 标题 命名规则
             const filename = getArtFilename(item.id, item.title);
             const filePath = path.join(contentDir, filename);
             fs.writeFileSync(filePath, JSON.stringify(item, null, 2), 'utf-8');
@@ -200,30 +226,35 @@ async function runPipeline() {
       }
     }
 
-    console.log(`\n🔍 开始执行资产体检与自愈审计（共托管条目: ${artworksMap.size}）...`);
+    console.log(`🔍 开始执行资产体检与自愈审计（共托管条目: ${artworksMap.size}）...`);
 
     // -------------------------------------------------------------
-    // 步骤 2：垃圾回收机制
+    // 步骤 2：垃圾回收机制（根据用户刚刚在终端的选择执行）
     // -------------------------------------------------------------
-    const rawFilesNow = fs.existsSync(inputDir) ? fs.readdirSync(inputDir) : [];
     let prunedCount = 0;
 
-    for (const [id, entry] of artworksMap.entries()) {
-      const item = entry.data;
-      if (item.sourceFile && !rawFilesNow.includes(item.sourceFile)) {
-        if (item.image) {
-          const targetWebpPath = path.join(__dirname, 'public', item.image);
-          if (fs.existsSync(targetWebpPath)) fs.unlinkSync(targetWebpPath);
+    if (pruneDeletedArtworks) {
+      const rawFilesNow = fs.existsSync(inputDir) ? fs.readdirSync(inputDir) : [];
+
+      for (const [id, entry] of artworksMap.entries()) {
+        const item = entry.data;
+        if (item.sourceFile && !rawFilesNow.includes(item.sourceFile)) {
+          if (item.image) {
+            const targetWebpPath = path.join(__dirname, 'public', item.image);
+            if (fs.existsSync(targetWebpPath)) fs.unlinkSync(targetWebpPath);
+          }
+          if (fs.existsSync(entry.filePath)) fs.unlinkSync(entry.filePath);
+
+          artworksMap.delete(id);
+          prunedCount++;
+          console.log(`🗑️ [自动清理] 原图已删除，已同步移除条目与图床文件: "${item.title}"`);
         }
-        if (fs.existsSync(entry.filePath)) fs.unlinkSync(entry.filePath);
-
-        artworksMap.delete(id);
-        prunedCount++;
-        console.log(`🗑️ [自动清理] 原图已删除，已同步移除条目与图床文件: "${item.title}"`);
       }
-    }
 
-    if (prunedCount > 0) console.log(`🧹 成功清理失效孤儿资产 ${prunedCount} 个。\n`);
+      if (prunedCount > 0) console.log(`🧹 成功清理失效孤儿资产 ${prunedCount} 个。\n`);
+    } else {
+      console.log(`🛡️ [跳过垃圾回收] 即使部分原图在 raw-images 中不存在，线上画作也将保持完好。\n`);
+    }
 
     let healedCount = 0;
     let tagSupplementCount = 0;
@@ -272,12 +303,11 @@ async function runPipeline() {
       const expectedFilePath = path.join(contentDir, expectedFilename);
 
       if (isModified || entry.filePath !== expectedFilePath) {
-        // 如果旧文件名不符合带标题的新规范，清理掉旧文件
         if (fs.existsSync(entry.filePath) && entry.filePath !== expectedFilePath) {
           fs.unlinkSync(entry.filePath);
         }
         fs.writeFileSync(expectedFilePath, JSON.stringify(item, null, 2), 'utf-8');
-        entry.filePath = expectedFilePath; // 更新引用路径
+        entry.filePath = expectedFilePath;
       }
     }
 
@@ -287,7 +317,7 @@ async function runPipeline() {
     const processedSourceFiles = new Set([...artworksMap.values()].map(e => e.data.sourceFile).filter(Boolean));
     const processedMd5s = new Set([...artworksMap.values()].map(e => e.data.md5).filter(Boolean));
 
-    const rawFiles = fs.readdirSync(inputDir).filter(file => /\.(jpg|jpeg|png|webp)$/i.test(file));
+    const rawFiles = fs.existsSync(inputDir) ? fs.readdirSync(inputDir).filter(file => /\.(jpg|jpeg|png|webp)$/i.test(file)) : [];
     const totalFiles = rawFiles.length;
 
     if (totalFiles === 0) {
@@ -359,7 +389,6 @@ async function runPipeline() {
         tags
       };
 
-      // 💡 采用 ID + 标题 命名规则写入独立文件
       const newFilename = getArtFilename(randomId, title);
       const newFilePath = path.join(contentDir, newFilename);
       fs.writeFileSync(newFilePath, JSON.stringify(newArtItem, null, 2), 'utf-8');

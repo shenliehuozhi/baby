@@ -6,38 +6,83 @@ import { fileURLToPath } from 'node:url';
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
-const jsonPath = path.join(__dirname, 'src/data/artworks.json');
+const contentDir = path.join(__dirname, 'src/content/artworks');
 const inputDir = path.join(__dirname, 'raw-images');
 const outputDir = path.join(__dirname, 'public/uploads');
 
-if (!fs.existsSync(jsonPath)) {
-  console.log(`\n❌ [错误] 没有找到 artworks.json 文件！请先运行 "npm run sync"。\n`);
+if (!fs.existsSync(contentDir)) {
+  console.log(`\n❌ [错误] 没有找到 src/content/artworks 目录！请检查项目路径。\n`);
   process.exit(0);
 }
 
-let fileContent = '';
-try {
-  fileContent = fs.readFileSync(jsonPath, 'utf-8').trim();
-} catch (e) {
-  console.log(`\n❌ [错误] 读取 artworks.json 失败: ${e.message}\n`);
-  process.exit(0);
+// 辅助函数：计算字符串在终端中的实际显示宽度（中文字符算 2 个宽度）
+function getDisplayWidth(str) {
+  let width = 0;
+  for (let i = 0; i < str.length; i++) {
+    const code = str.charCodeAt(i);
+    if (
+      (code >= 0x4e00 && code <= 0x9fa5) || 
+      (code >= 0xff00 && code <= 0xffef) || 
+      (code >= 0x3000 && code <= 0x303f)
+    ) {
+      width += 2;
+    } else {
+      width += 1;
+    }
+  }
+  return width;
 }
 
-if (!fileContent) {
-  console.log(`\n❌ [错误] artworks.json 文件内容为空！\n`);
+function padWidth(str, targetWidth) {
+  const currentWidth = getDisplayWidth(str);
+  if (currentWidth >= targetWidth) return str;
+  return str + ' '.repeat(targetWidth - currentWidth);
+}
+
+const files = fs.readdirSync(contentDir).filter(file => !file.startsWith('.'));
+
+if (files.length === 0) {
+  console.log(`\n📂 [提示] 当前 artworks 集合中没有任何画作文件。\n`);
   process.exit(0);
 }
 
 let artworks = [];
-try {
-  artworks = JSON.parse(fileContent);
-} catch (e) {
-  console.log(`\n❌ [错误] artworks.json 格式损坏: ${e.message}\n`);
-  process.exit(0);
-}
 
-if (!Array.isArray(artworks) || artworks.length === 0) {
-  console.log(`\n📂 [提示] 当前美术馆里没有任何画作记录。\n`);
+files.forEach(file => {
+  const filePath = path.join(contentDir, file);
+  if (fs.statSync(filePath).isFile()) {
+    try {
+      const content = fs.readFileSync(filePath, 'utf-8');
+      let data = {};
+      
+      if (file.endsWith('.json')) {
+        data = JSON.parse(content);
+      } else {
+        const matchTitle = content.match(/title:\s*["']?([^"'\n]+)["']?/);
+        const matchDate = content.match(/date:\s*["']?([^"'\n]+)["']?/);
+        const matchImage = content.match(/image:\s*["']?([^"'\n]+)["']?/);
+        const matchSource = content.match(/sourceFile:\s*["']?([^"'\n]+)["']?/);
+        data = {
+          title: matchTitle ? matchTitle[1] : file,
+          date: matchDate ? matchDate[1] : '未知日期',
+          image: matchImage ? matchImage[1] : '',
+          sourceFile: matchSource ? matchSource[1] : ''
+        };
+      }
+
+      artworks.push({
+        fileName: file,
+        filePath: filePath,
+        ...data
+      });
+    } catch (e) {
+      console.log(`⚠️ 解析文件 ${file} 失败: ${e.message}`);
+    }
+  }
+});
+
+if (artworks.length === 0) {
+  console.log(`\n📂 [提示] 没有解析到有效的画作数据。\n`);
   process.exit(0);
 }
 
@@ -46,21 +91,21 @@ const rl = readline.createInterface({
   output: process.stdout
 });
 
-console.log('\n🎨 当前美术馆收录的画作列表（表格对齐视图）：\n');
-console.log(' 编号  │ 文件名                  │ 日期       │ 画作标题');
-console.log('───────┼─────────────────────────┼────────────┼────────────────────────────────────────');
+console.log('\n🎨 当前 Content Collections 收录的画作列表：\n');
+console.log(' 编号  │ 日期       │ 集合文件名');
+console.log('───────┼────────────┼─────────────────────────────────────────────────────');
 
 artworks.forEach((art, index) => {
-  const numStr = `[${index + 1}]`.padEnd(5, ' ');
-  const webpFilename = art.image ? path.basename(art.image).padEnd(23, ' ') : '未知文件'.padEnd(23, ' ');
-  const dateStr = (art.date || '未知日期').padEnd(10, ' ');
-  const titleStr = art.title ? `「${art.title}」` : '无标题';
-  console.log(` ${numStr} │ ${webpFilename} │ ${dateStr} │ ${titleStr}`);
+  const numStr = padWidth(`[${index + 1}]`, 5);
+  const dateStr = padWidth(art.date || '未知日期', 10);
+  const fileStr = padWidth(art.fileName, 51);
+  
+  console.log(` ${numStr} │ ${dateStr} │ ${fileStr}`);
 });
 
-console.log('───────┴─────────────────────────┴────────────┴────────────────────────────────────────');
+console.log('───────┴────────────┴─────────────────────────────────────────────────────');
 
-rl.question('\n👉 请输入编号（如 1, 3）、文件名（如 art_c5978）或关键词，或直接回车取消: ', (answer) => {
+rl.question('\n👉 请输入编号（如 1, 3）、文件名或关键词，或直接回车取消: ', (answer) => {
   const input = answer.trim();
   if (!input) {
     console.log('🚫 操作已取消。');
@@ -72,7 +117,6 @@ rl.question('\n👉 请输入编号（如 1, 3）、文件名（如 art_c5978）
   const indices = [];
 
   for (const token of tokens) {
-    // 1. 如果输入的是纯数字，按编号处理（索引 = 编号 - 1）
     if (/^\d+$/.test(token)) {
       const num = parseInt(token, 10);
       const idx = num - 1;
@@ -80,19 +124,17 @@ rl.question('\n👉 请输入编号（如 1, 3）、文件名（如 art_c5978）
         indices.push(idx);
       }
     } else {
-      // 2. 如果输入的是文本，模糊匹配文件名或标题
       const keyword = token.toLowerCase();
       artworks.forEach((art, idx) => {
-        const webpFilename = art.image ? path.basename(art.image).toLowerCase() : '';
+        const fileName = art.fileName.toLowerCase();
         const title = (art.title || '').toLowerCase();
-        if (webpFilename.includes(keyword) || title.includes(keyword)) {
+        if (fileName.includes(keyword) || title.includes(keyword)) {
           indices.push(idx);
         }
       });
     }
   }
 
-  // 数组去重
   const uniqueIndices = [...new Set(indices)];
 
   if (uniqueIndices.length === 0) {
@@ -101,41 +143,41 @@ rl.question('\n👉 请输入编号（如 1, 3）、文件名（如 art_c5978）
     return;
   }
 
-  console.log('\n⚠️ 准备批量删除以下匹配的画作：');
+  console.log('\n⚠️ 准备彻底删除以下匹配的画作及关联文件：');
   uniqueIndices.forEach(idx => {
-    const webpFilename = artworks[idx].image ? path.basename(artworks[idx].image) : '';
-    console.log(`  - [${idx + 1}] ${webpFilename}  ➔  「${artworks[idx].title}」`);
+    const art = artworks[idx];
+    console.log(`  - [${idx + 1}] 文件: ${art.fileName}  ➔  「${art.title || '无标题'}」`);
   });
 
   rl.question('\n❓ 确认要彻底删除这些选中的画作吗？(y/N): ', (confirm) => {
     if (confirm.trim().toLowerCase() === 'y') {
-      const indexSet = new Set(uniqueIndices);
+      uniqueIndices.forEach(idx => {
+        const art = artworks[idx];
 
-      artworks.forEach((target, idx) => {
-        if (indexSet.has(idx)) {
-          if (target.sourceFile) {
-            const rawPath = path.join(inputDir, target.sourceFile);
-            if (fs.existsSync(rawPath)) {
-              fs.unlinkSync(rawPath);
-              console.log(`🗑️ 已删除原图: ${target.sourceFile}`);
-            }
+        if (fs.existsSync(art.filePath)) {
+          fs.unlinkSync(art.filePath);
+          console.log(`🗑️ 已删除数据文件: src/content/artworks/${art.fileName}`);
+        }
+
+        if (art.sourceFile) {
+          const rawPath = path.join(inputDir, art.sourceFile);
+          if (fs.existsSync(rawPath)) {
+            fs.unlinkSync(rawPath);
+            console.log(`🗑️ 已删除原图: ${art.sourceFile}`);
           }
+        }
 
-          if (target.image) {
-            const webpFilename = path.basename(target.image);
-            const webpPath = path.join(outputDir, webpFilename);
-            if (fs.existsSync(webpPath)) {
-              fs.unlinkSync(webpPath);
-              console.log(`🗑️ 已删除图床文件: ${webpFilename}`);
-            }
+        if (art.image) {
+          const webpFilename = path.basename(art.image);
+          const webpPath = path.join(outputDir, webpFilename);
+          if (fs.existsSync(webpPath)) {
+            fs.unlinkSync(webpPath);
+            console.log(`🗑️ 已删除图床文件: ${webpFilename}`);
           }
         }
       });
 
-      const newArtworks = artworks.filter((_, idx) => !indexSet.has(idx));
-      fs.writeFileSync(jsonPath, JSON.stringify(newArtworks, null, 2), 'utf-8');
-      
-      console.log(`\n✨ 成功从总账本中移除了选中的 ${uniqueIndices.length} 个画作记录！\n`);
+      console.log(`\n✨ 成功删除了选中的 ${uniqueIndices.length} 个画作记录及相关文件！\n`);
     } else {
       console.log('🚫 操作已取消。');
     }
