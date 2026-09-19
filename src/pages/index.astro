@@ -1,40 +1,155 @@
 ---
 import Layout from '../layouts/Layout.astro';
-import artworks from '../data/artworks.json';
+import artworksData from '../data/artworks.json';
+
+// 🛡️ 智能兜底、年份/月份提取与保留原始索引
+const artworks = artworksData.map((art, index) => {
+  const yearStr = art.date ? art.date.substring(0, 4) : '2026';
+  const monthStr = art.date ? art.date.substring(0, 7) : '2026-01';
+  return {
+    ...art,
+    category: art.category || 'other',
+    tags: art.tags || [],
+    date: art.date || '2026-01-01',
+    year: `${yearStr}年`,
+    month: monthStr,
+    originalIndex: index
+  };
+}).sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
+
+// 📊 计算成长统计数据
+const totalArtworks = artworks.length;
+const uniqueMonths = [...new Set(artworks.map(art => art.month))].length;
+
+// 📅 构建右侧层级时间导航 (Year -> Months)
+const yearMap = {};
+artworks.forEach(art => {
+  const y = art.month.substring(0, 4);
+  if (!yearMap[y]) yearMap[y] = new Set();
+  yearMap[y].add(art.month);
+});
+
+const timelineHierarchy = Object.keys(yearMap).sort().reverse().map(year => ({
+  year,
+  months: Array.from(yearMap[year]).sort().reverse().map(m => ({
+    value: m,
+    label: `${m.substring(5, 7)}月`
+  }))
+}));
 ---
 
 <Layout title="七叶童画成林 🎨">
-  <main class="gallery-container">
+  <main class="gallery-container is-grid" id="galleryRoot">
     <!-- 头部标语 -->
     <header class="header">
       <h1>✨ 七叶童画成林 ✨</h1>
       <p>记录童年的异想天开，把每一道色彩变成永恒。</p>
     </header>
 
-    <!-- 画作展厅容器（自动居中排列） -->
-    <div class="grid">
-      {artworks.map((art, index) => (
-        <div class="card">
-          <!-- 图片展示区（点击可放大，带 data-index 属性用于定位） -->
-          <div class="image-wrapper" data-index={index} title="点击查看大图与详细故事">
-            <img src={art.image} alt={art.title} loading="lazy" />
-            <span class="age-badge">{art.age}</span>
-            <div class="zoom-tip">🔍 点击查看大图</div>
-          </div>
+    <!-- 📊 成长统计面板 -->
+    <section class="stats-panel">
+      <div class="stat-card">
+        <span class="stat-num">{totalArtworks}</span>
+        <span class="stat-label">🎨 收藏画作</span>
+      </div>
+      <div class="stat-card">
+        <span class="stat-num">{uniqueMonths}</span>
+        <span class="stat-label">⏳ 记录月份</span>
+      </div>
+    </section>
 
-          <!-- 文字故事区 -->
-          <div class="card-content">
-            <div class="card-header">
-              <h2>{art.title}</h2>
-              <span class="date">{art.date}</span>
+    <!-- 🎛️ 左侧悬浮控制与筛选侧边栏 -->
+    <div class="control-sidebar" id="controlSidebar">
+      <div class="nav-title">🎛️ 视图与分类</div>
+
+      <div class="control-group">
+        <div class="nav-subtitle">视图模式</div>
+        <div class="view-switcher-sidebar">
+          <button class="view-btn active" data-view="grid">🖼️ 网格</button>
+          <button class="view-btn" data-view="timeline">⏳ 时间轴</button>
+        </div>
+      </div>
+
+      <div class="control-group">
+        <div class="nav-subtitle">作品分类</div>
+        <div class="filter-list-sidebar">
+          <button class="filter-btn active" data-filter="all">🌟 全部作品</button>
+          <button class="filter-btn" data-filter="creative">🎨 奇思妙想</button>
+          <button class="filter-btn" data-filter="nature">🌿 自然风光</button>
+          <button class="filter-btn" data-filter="life">🏡 日常点滴</button>
+          <button class="filter-btn" data-filter="other">📌 其他作品</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- 📱 移动端顶部显示的备用控制栏（在宽屏下隐藏，由左侧边栏替代） -->
+    <div class="mobile-control-bar">
+      <div class="view-switcher">
+        <button class="view-btn active" data-view="grid">🖼️ 网格</button>
+        <button class="view-btn" data-view="timeline">⏳ 时间轴</button>
+      </div>
+      <div class="filter-bar">
+        <div class="filter-scroll">
+          <button class="filter-btn active" data-filter="all">🌟 全部</button>
+          <button class="filter-btn" data-filter="creative">🎨 奇思</button>
+          <button class="filter-btn" data-filter="nature">🌿 自然</button>
+          <button class="filter-btn" data-filter="life">🏡 日常</button>
+          <button class="filter-btn" data-filter="other">📌 其他</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- 📅 右侧悬浮层级日期导航条 -->
+    <div class="date-nav-bar" id="dateNavBar">
+      <div class="nav-title">📌 时间导航</div>
+      <div class="nav-items-scroll">
+        {timelineHierarchy.map(item => (
+          <div class="nav-year-group">
+            <div class="nav-year-label">{item.year}</div>
+            <div class="nav-months-list">
+              {item.months.map(m => (
+                <button class="nav-item-btn" data-target-month={m.value}>{m.label}</button>
+              ))}
             </div>
-            <p class="story">"{art.description}"</p>
+          </div>
+        ))}
+      </div>
+    </div>
+
+    <!-- 🌟 单一数据源渲染容器 -->
+    <div class="gallery-content" id="galleryContent">
+      <div class="timeline-line"></div>
+      {artworks.map((art) => (
+        <div class="card-wrapper" data-category={art.category} data-date={art.date} data-month={art.month}>
+          <div class="timeline-dot"></div>
+          <div class="timeline-date-badge">{art.date}</div>
+
+          <div class="card">
+            <div class="image-wrapper" data-index={art.originalIndex} title="点击查看大图与详细故事">
+              <img src={art.image} alt={art.title} loading="lazy" />
+              <span class="age-badge">{art.year}</span>
+              <div class="zoom-tip">🔍 点击查看大图</div>
+            </div>
+
+            <div class="card-content">
+              <div class="card-header">
+                <h2>{art.title}</h2>
+                <span class="date">{art.date}</span>
+              </div>
+              <p class="story">"{art.description}"</p>
+              {art.tags.length > 0 && (
+                <div class="tags">
+                  {art.tags.map(tag => (
+                    <span class="tag">#{tag}</span>
+                  ))}
+                </div>
+              )}
+            </div>
           </div>
         </div>
       ))}
     </div>
 
-    <!-- 底部版权 -->
     <footer>
       <p>© {new Date().getFullYear()} - Made with ❤️ for our little artist</p>
     </footer>
@@ -47,25 +162,65 @@ import artworks from '../data/artworks.json';
     <button class="lightbox-next" title="下一张 (→)">&#10095;</button>
 
     <div class="lightbox-container" id="lightbox-container">
-      <!-- 图片展示区（支持左右滑动切换） -->
       <div class="lightbox-img-wrapper" id="lightbox-img-wrapper">
         <img id="lightbox-img" src="" alt="放大图" />
       </div>
-
-      <!-- 详细信息展示区 -->
       <div class="lightbox-details">
         <div class="lightbox-meta">
-          <span id="lightbox-age" class="age-badge-tag"></span>
+          <span id="lightbox-year" class="age-badge-tag"></span>
           <span id="lightbox-date" class="date"></span>
         </div>
         <h2 id="lightbox-title"></h2>
         <p id="lightbox-desc" class="story"></p>
 
-        <!-- 🔊 语音朗读按钮 -->
-        <button id="speak-btn" class="speak-btn" title="点击朗读故事">
-          🔊 朗读故事
-        </button>
+        <div class="lightbox-actions">
+          <button id="speak-btn" class="speak-btn" title="点击朗读故事">🔊 朗读故事</button>
+          <button id="portraitPosterBtn" class="poster-btn" title="生成竖版电影海报">🎬 竖版海报</button>
+          <button id="landscapePosterBtn" class="poster-btn" title="生成横版纪念卡">🖼️ 横版纪念卡</button>
+        </div>
       </div>
+    </div>
+  </div>
+
+  <!-- 🎬 1. 竖版电影海报预览模态框（尺寸加大） -->
+  <div id="portraitPosterModal" class="poster-modal">
+    <div class="portrait-card">
+      <div class="poster-header">✨ 七叶童画成林 ✨</div>
+      <div class="portrait-img-box">
+        <img id="portraitImg" src="" alt="竖版海报" />
+      </div>
+      <h3 id="portraitTitle"></h3>
+      <p id="portraitDesc" class="poster-story"></p>
+      <div class="poster-footer">
+        <span id="portraitDate"></span>
+        <span>电影级艺术珍藏 ❤️</span>
+      </div>
+    </div>
+    <div class="poster-actions">
+      <button id="closePortraitBtn" class="poster-close-btn">关闭海报</button>
+      <p class="poster-tip">💡 提示：长按保存竖版电影海报</p>
+    </div>
+  </div>
+
+  <!-- 🖼️ 2. 横版宽屏纪念卡预览模态框（尺寸加大） -->
+  <div id="landscapePosterModal" class="poster-modal">
+    <div class="landscape-card">
+      <div class="poster-img-box-wide">
+        <img id="landscapeImg" src="" alt="横版纪念卡" />
+      </div>
+      <div class="poster-info-wide">
+        <div class="poster-badge">✨ 七叶童画成林 ✨</div>
+        <h3 id="landscapeTitle"></h3>
+        <p id="landscapeDesc" class="poster-story"></p>
+        <div class="poster-footer">
+          <span id="landscapeDate"></span>
+          <span>童年的异想天开 ❤️</span>
+        </div>
+      </div>
+    </div>
+    <div class="poster-actions">
+      <button id="closeLandscapeBtn" class="poster-close-btn">关闭卡片</button>
+      <p class="poster-tip">💡 提示：截图或长按保存横版纪念卡</p>
     </div>
   </div>
 </Layout>
@@ -80,11 +235,12 @@ import artworks from '../data/artworks.json';
     min-height: 100vh;
     font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
     box-sizing: border-box;
+    position: relative;
   }
 
   .header {
     text-align: center;
-    margin-bottom: 40px;
+    margin-bottom: 20px;
   }
 
   .header h1 {
@@ -98,18 +254,423 @@ import artworks from '../data/artworks.json';
     font-size: 1rem;
   }
 
-  .grid {
+  /* 📊 统计面板样式 */
+  .stats-panel {
+    max-width: 650px;
+    margin: 0 auto 30px auto;
+    display: flex;
+    justify-content: center;
+    gap: 15px;
+    align-items: center;
+  }
+
+  .stat-card {
+    background: #ffffff;
+    border: 1px solid #fef3c7;
+    padding: 12px 20px;
+    border-radius: 14px;
+    text-align: center;
+    box-shadow: 0 2px 10px rgba(0,0,0,0.03);
+    flex: 1;
+  }
+
+  .stat-num {
+    display: block;
+    font-size: 1.4rem;
+    font-weight: bold;
+    color: #d97706;
+  }
+
+  .stat-label {
+    font-size: 0.75rem;
+    color: #78350f;
+    font-weight: 500;
+  }
+
+  /* 🎛️ 左侧悬浮控制与筛选侧边栏 */
+  .control-sidebar {
+    position: fixed;
+    left: 20px;
+    top: 50%;
+    transform: translateY(-50%);
+    background: rgba(255, 255, 255, 0.95);
+    backdrop-filter: blur(8px);
+    padding: 14px 12px;
+    border-radius: 16px;
+    box-shadow: 0 4px 20px rgba(0, 0, 0, 0.08);
+    z-index: 999;
+    display: flex;
+    flex-direction: column;
+    gap: 14px;
+    border: 1px solid #fef3c7;
+    width: 150px;
+    box-sizing: border-box;
+  }
+
+  .control-sidebar .nav-title {
+    font-size: 0.85rem;
+    font-weight: bold;
+    color: #b45309;
+    text-align: center;
+    border-bottom: 1px dashed #fde68a;
+    padding-bottom: 6px;
+    margin: 0;
+  }
+
+  .control-group {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+  }
+
+  .nav-subtitle {
+    font-size: 0.75rem;
+    font-weight: bold;
+    color: #92400e;
+    text-align: left;
+    padding-left: 2px;
+  }
+
+  .view-switcher-sidebar {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    background: #fef3c7;
+    padding: 4px;
+    border-radius: 10px;
+    border: 1px solid #fde68a;
+  }
+
+  .view-switcher-sidebar .view-btn {
+    background: transparent;
+    border: none;
+    padding: 6px 10px;
+    border-radius: 8px;
+    font-size: 0.8rem;
+    font-weight: 600;
+    color: #b45309;
+    cursor: pointer;
+    transition: all 0.2s ease;
+    text-align: center;
+    width: 100%;
+  }
+
+  .view-switcher-sidebar .view-btn.active {
+    background: #f59e0b;
+    color: white;
+    box-shadow: 0 2px 6px rgba(245, 158, 11, 0.3);
+  }
+
+  .filter-list-sidebar {
+    display: flex;
+    flex-direction: column;
+    gap: 5px;
+  }
+
+  .filter-list-sidebar .filter-btn {
+    background: #fffbf5;
+    border: 1px solid #fde68a;
+    padding: 6px 10px;
+    border-radius: 8px;
+    font-size: 0.78rem;
+    font-weight: 600;
+    color: #78350f;
+    cursor: pointer;
+    transition: all 0.2s ease;
+    text-align: center;
+    width: 100%;
+    box-shadow: 0 1px 4px rgba(0,0,0,0.02);
+  }
+
+  .filter-list-sidebar .filter-btn.active {
+    background: #f59e0b;
+    color: white;
+    border-color: #f59e0b;
+    box-shadow: 0 2px 8px rgba(245, 158, 11, 0.3);
+  }
+
+  /* 📱 移动端控制栏默认隐藏，宽屏时由侧边栏替代 */
+  .mobile-control-bar {
+    display: none;
+  }
+
+  @media (max-width: 1250px) {
+    .control-sidebar {
+      display: none;
+    }
+    .mobile-control-bar {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 12px;
+      margin-bottom: 25px;
+    }
+    .mobile-control-bar .view-switcher {
+      display: flex;
+      background: #fef3c7;
+      padding: 4px;
+      border-radius: 25px;
+      border: 1px solid #fde68a;
+    }
+    .mobile-control-bar .view-btn {
+      background: transparent;
+      border: none;
+      padding: 6px 16px;
+      border-radius: 20px;
+      font-size: 0.85rem;
+      font-weight: 600;
+      color: #b45309;
+      cursor: pointer;
+    }
+    .mobile-control-bar .view-btn.active {
+      background: #f59e0b;
+      color: white;
+    }
+    .mobile-control-bar .filter-bar {
+      width: 100%;
+      overflow-x: auto;
+      white-space: nowrap;
+      scrollbar-width: none;
+    }
+    .mobile-control-bar .filter-bar::-webkit-scrollbar {
+      display: none;
+    }
+    .mobile-control-bar .filter-scroll {
+      display: inline-flex;
+      gap: 8px;
+      padding: 0 10px;
+    }
+    .mobile-control-bar .filter-btn {
+      background: #fff;
+      border: 1px solid #fef3c7;
+      padding: 6px 14px;
+      border-radius: 20px;
+      font-size: 0.8rem;
+      font-weight: 600;
+      color: #78350f;
+      cursor: pointer;
+    }
+    .mobile-control-bar .filter-btn.active {
+      background: #f59e0b;
+      color: white;
+      border-color: #f59e0b;
+    }
+  }
+
+  /* 📅 右侧悬浮层级日期导航样式 */
+  .date-nav-bar {
+    position: fixed;
+    right: 20px;
+    top: 50%;
+    transform: translateY(-50%);
+    background: rgba(255, 255, 255, 0.95);
+    backdrop-filter: blur(8px);
+    padding: 12px 10px;
+    border-radius: 16px;
+    box-shadow: 0 4px 20px rgba(0, 0, 0, 0.08);
+    z-index: 999;
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    border: 1px solid #fef3c7;
+    max-height: 65vh;
+    overflow-y: auto;
+    width: 110px;
+    box-sizing: border-box;
+  }
+
+  .date-nav-bar .nav-title {
+    font-size: 0.8rem;
+    font-weight: bold;
+    color: #b45309;
+    text-align: center;
+    margin-bottom: 4px;
+  }
+
+  .nav-items-scroll {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+  }
+
+  .nav-year-group {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+  }
+
+  .nav-year-label {
+    font-size: 0.75rem;
+    font-weight: bold;
+    color: #92400e;
+    background: #fef3c7;
+    padding: 3px 6px;
+    border-radius: 8px;
+    text-align: center;
+    border: 1px solid #fde68a;
+  }
+
+  .nav-months-list {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    padding-left: 2px;
+  }
+
+  .nav-item-btn {
+    background: #fffbf5;
+    border: 1px solid #fde68a;
+    color: #78350f;
+    font-size: 0.75rem;
+    padding: 5px 4px;
+    border-radius: 8px;
+    cursor: pointer;
+    transition: all 0.2s ease;
+    text-align: center;
+    white-space: nowrap;
+    font-weight: 500;
+  }
+
+  .nav-item-btn:hover {
+    background: #f59e0b;
+    color: white;
+    border-color: #f59e0b;
+    transform: scale(1.05);
+  }
+
+  @media (max-width: 1250px) {
+    .date-nav-bar {
+      display: none;
+    }
+  }
+
+  .card-wrapper.hidden {
+    display: none !important;
+  }
+
+  /* 网格与时间轴视图形态 */
+  .gallery-container.is-grid .gallery-content {
     display: flex;
     flex-wrap: wrap;
     justify-content: center;
     gap: 30px;
     max-width: 1400px;
     margin: 0 auto;
+    position: relative;
   }
-
-  .card {
+  .gallery-container.is-grid .timeline-line,
+  .gallery-container.is-grid .timeline-dot,
+  .gallery-container.is-grid .timeline-date-badge {
+    display: none;
+  }
+  .gallery-container.is-grid .card-wrapper {
     flex: 1 1 340px;
     max-width: 420px;
+  }
+
+  .gallery-container.is-timeline .gallery-content {
+    display: flex;
+    flex-direction: column;
+    max-width: 700px;
+    margin: 0 auto;
+    position: relative;
+    padding: 20px 0;
+  }
+  .gallery-container.is-timeline .timeline-line {
+    position: absolute;
+    left: 24px;
+    top: 40px;
+    bottom: 40px;
+    width: 4px;
+    background: #fde68a;
+    border-radius: 2px;
+    display: block;
+  }
+  @media (min-width: 768px) {
+    .gallery-container.is-timeline .timeline-line {
+      left: 50%;
+      transform: translateX(-50%);
+    }
+  }
+
+  .gallery-container.is-timeline .card-wrapper {
+    position: relative;
+    margin-bottom: 40px;
+    display: flex;
+    flex-direction: column;
+    width: 100%;
+  }
+  @media (min-width: 768px) {
+    .gallery-container.is-timeline .card-wrapper {
+      width: 50%;
+      padding-right: 40px;
+      box-sizing: border-box;
+    }
+    .gallery-container.is-timeline .card-wrapper:nth-child(even) {
+      align-self: flex-end;
+      padding-right: 0;
+      padding-left: 40px;
+    }
+  }
+
+  .gallery-container.is-timeline .timeline-dot {
+    position: absolute;
+    left: 18px;
+    top: 15px;
+    width: 16px;
+    height: 16px;
+    background: #f59e0b;
+    border: 3px solid #fffbf5;
+    border-radius: 50%;
+    box-shadow: 0 0 0 2px #fde68a;
+    z-index: 2;
+    display: block;
+  }
+  @media (min-width: 768px) {
+    .gallery-container.is-timeline .timeline-dot {
+      left: auto;
+      right: -10px;
+    }
+    .gallery-container.is-timeline .card-wrapper:nth-child(even) .timeline-dot {
+      right: auto;
+      left: -10px;
+    }
+  }
+
+  .gallery-container.is-timeline .timeline-date-badge {
+    margin-left: 48px;
+    margin-bottom: 8px;
+    font-size: 0.85rem;
+    font-weight: 700;
+    color: #b45309;
+    background: #fef3c7;
+    padding: 3px 10px;
+    border-radius: 12px;
+    width: fit-content;
+    border: 1px solid #fde68a;
+    display: block;
+  }
+  @media (min-width: 768px) {
+    .gallery-container.is-timeline .timeline-date-badge {
+      margin-left: 0;
+    }
+  }
+
+  .gallery-container.is-timeline .card {
+    width: 100% !important;
+    max-width: none !important;
+  }
+  .gallery-container.is-timeline .image-wrapper {
+    height: 340px;
+  }
+  @media (min-width: 768px) {
+    .gallery-container.is-timeline .image-wrapper {
+      height: 380px;
+    }
+  }
+
+  /* 通用卡片样式 */
+  .card {
     background: white;
     border-radius: 18px;
     overflow: hidden;
@@ -135,6 +696,7 @@ import artworks from '../data/artworks.json';
     overflow: hidden;
     padding: 12px;
     cursor: zoom-in;
+    flex-shrink: 0;
   }
 
   .image-wrapper img {
@@ -216,6 +778,22 @@ import artworks from '../data/artworks.json';
     margin: 0;
   }
 
+  .tags {
+    margin-top: 10px;
+    display: flex;
+    gap: 6px;
+    flex-wrap: wrap;
+  }
+
+  .tag {
+    font-size: 0.75rem;
+    background: #fef3c7;
+    color: #b45309;
+    padding: 2px 8px;
+    border-radius: 6px;
+    font-weight: 500;
+  }
+
   footer {
     text-align: center;
     margin-top: 50px;
@@ -223,7 +801,7 @@ import artworks from '../data/artworks.json';
     font-size: 0.85rem;
   }
 
-  /* ----------------- 💡 响应式 Lightbox 弹窗样式（移动优先） ----------------- */
+  /* Lightbox 弹窗样式 */
   .lightbox-overlay {
     display: none;
     position: fixed;
@@ -244,7 +822,6 @@ import artworks from '../data/artworks.json';
     display: flex;
   }
 
-  /* 默认（移动端/小屏幕）：上下垂直结构 */
   .lightbox-container {
     display: flex;
     flex-direction: column;
@@ -266,7 +843,7 @@ import artworks from '../data/artworks.json';
     justify-content: center;
     padding: 15px;
     overflow: hidden;
-    touch-action: pan-y; /* 允许纵向滚动，优化横向滑动体验 */
+    touch-action: pan-y;
   }
 
   #lightbox-img {
@@ -327,15 +904,20 @@ import artworks from '../data/artworks.json';
     margin: 0;
   }
 
-  /* 🔊 语音朗读按钮样式 */
-  .speak-btn {
+  .lightbox-actions {
+    display: flex;
+    gap: 8px;
     margin-top: 15px;
+    flex-wrap: wrap;
+  }
+
+  .speak-btn, .poster-btn {
     background-color: #fef3c7;
     color: #b45309;
     border: 1px solid #fde68a;
-    padding: 10px 16px;
+    padding: 10px 14px;
     border-radius: 20px;
-    font-size: 0.95rem;
+    font-size: 0.9rem;
     font-weight: 600;
     cursor: pointer;
     display: flex;
@@ -346,7 +928,7 @@ import artworks from '../data/artworks.json';
     width: fit-content;
   }
 
-  .speak-btn:hover {
+  .speak-btn:hover, .poster-btn:hover {
     background-color: #fde68a;
     transform: scale(1.03);
   }
@@ -362,7 +944,6 @@ import artworks from '../data/artworks.json';
     100% { opacity: 1; }
   }
 
-  /* 关闭与切换控制按钮 */
   .lightbox-close, .lightbox-prev, .lightbox-next {
     position: absolute;
     background: rgba(0, 0, 0, 0.5);
@@ -402,8 +983,210 @@ import artworks from '../data/artworks.json';
   .lightbox-prev { left: 10px; }
   .lightbox-next { right: 10px; }
 
+  /* Modal 通用遮罩 */
+  .poster-modal {
+    display: none;
+    position: fixed;
+    z-index: 1100;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    background-color: rgba(0, 0, 0, 0.85);
+    backdrop-filter: blur(6px);
+    justify-content: center;
+    align-items: center;
+    flex-direction: column;
+    padding: 20px;
+    box-sizing: border-box;
+    overflow-y: auto;
+  }
+  .poster-modal.active {
+    display: flex;
+  }
 
-  /* 🖥️ 电脑端大屏幕（>= 1024px）：左右分栏结构 */
+  /* 🎬 1. 竖版电影海报卡片样式（尺寸显著放大） */
+  .portrait-card {
+    background: #fffbf5;
+    width: 440px;
+    max-width: 95vw;
+    padding: 28px;
+    border-radius: 22px;
+    box-shadow: 0 25px 50px rgba(0,0,0,0.6);
+    border: 2px solid #fde68a;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    text-align: center;
+    box-sizing: border-box;
+  }
+
+  .portrait-img-box {
+    width: 100%;
+    height: 460px;
+    background: #0d0d0d;
+    border-radius: 14px;
+    overflow: hidden;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    margin-bottom: 16px;
+    padding: 8px;
+  }
+
+  #portraitImg {
+    max-width: 100%;
+    max-height: 100%;
+    object-fit: contain;
+    border-radius: 8px;
+  }
+
+  .portrait-card h3 {
+    font-size: 1.25rem;
+    color: #1f2937;
+    margin: 0 0 8px 0;
+  }
+
+  /* 🖼️ 2. 横版宽屏纪念卡卡片样式（尺寸显著放大） */
+  .landscape-card {
+    background: #fffbf5;
+    width: 880px;
+    max-width: 95vw;
+    padding: 28px;
+    border-radius: 24px;
+    box-shadow: 0 25px 50px rgba(0,0,0,0.6);
+    border: 2px solid #fde68a;
+    display: flex;
+    flex-direction: row;
+    gap: 28px;
+    align-items: center;
+    box-sizing: border-box;
+  }
+
+  .poster-img-box-wide {
+    width: 55%;
+    height: 380px;
+    background: #0d0d0d;
+    border-radius: 16px;
+    overflow: hidden;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 10px;
+    flex-shrink: 0;
+  }
+
+  #landscapeImg {
+    max-width: 100%;
+    max-height: 100%;
+    object-fit: contain;
+    border-radius: 10px;
+  }
+
+  .poster-info-wide {
+    width: 45%;
+    display: flex;
+    flex-direction: column;
+    align-items: flex-start;
+    text-align: left;
+    box-sizing: border-box;
+  }
+
+  .poster-badge {
+    font-size: 0.85rem;
+    font-weight: bold;
+    color: #92400e;
+    background: #fef3c7;
+    padding: 4px 12px;
+    border-radius: 20px;
+    margin-bottom: 12px;
+    border: 1px solid #fde68a;
+  }
+
+  .poster-info-wide h3 {
+    font-size: 1.4rem;
+    color: #1f2937;
+    margin: 0 0 10px 0;
+    line-height: 1.3;
+  }
+
+  .poster-story {
+    font-size: 0.95rem;
+    color: #4b5563;
+    background: #fffbeb;
+    padding: 12px 14px;
+    border-radius: 10px;
+    border: 1px solid #fef3c7;
+    margin: 0 0 15px 0;
+    line-height: 1.5;
+    width: 100%;
+    box-sizing: border-box;
+  }
+
+  .poster-footer {
+    display: flex;
+    justify-content: space-between;
+    width: 100%;
+    font-size: 0.85rem;
+    color: #b45309;
+    border-top: 1px dashed #fde68a;
+    padding-top: 10px;
+    box-sizing: border-box;
+  }
+
+  .poster-header {
+    font-size: 1.25rem;
+    font-weight: bold;
+    color: #78350f;
+    margin-bottom: 14px;
+  }
+
+  .poster-actions {
+    margin-top: 20px;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 8px;
+  }
+
+  .poster-close-btn {
+    background: #f59e0b;
+    color: white;
+    border: none;
+    padding: 10px 28px;
+    border-radius: 20px;
+    font-weight: 600;
+    cursor: pointer;
+    box-shadow: 0 4px 12px rgba(245, 158, 11, 0.35);
+    transition: transform 0.2s ease;
+  }
+  .poster-close-btn:hover {
+    transform: scale(1.05);
+  }
+
+  .poster-tip {
+    color: #fef3c7;
+    font-size: 0.8rem;
+    margin: 0;
+  }
+
+  @media (max-width: 768px) {
+    .landscape-card {
+      flex-direction: column;
+      width: 94vw;
+      padding: 18px;
+    }
+    .poster-img-box-wide {
+      width: 100%;
+      height: 280px;
+    }
+    .poster-info-wide {
+      width: 100%;
+      align-items: center;
+      text-align: center;
+    }
+  }
+
   @media (min-width: 1024px) {
     .lightbox-container {
       flex-direction: row;
@@ -411,90 +1194,127 @@ import artworks from '../data/artworks.json';
       height: 92vh;
       border-radius: 20px;
     }
-
     .lightbox-img-wrapper {
       flex: 4;
       padding: 25px;
     }
-
     .lightbox-details {
       flex: 1.1;
       min-width: 320px;
       padding: 45px;
       justify-content: center;
     }
-
-    .lightbox-meta {
-      margin-bottom: 20px;
-    }
-
-    .lightbox-details .age-badge-tag {
-      font-size: 0.95rem;
-      padding: 6px 14px;
-    }
-
-    .lightbox-details .date {
-      font-size: 0.95rem;
-    }
-
-    #lightbox-title {
-      font-size: 2rem;
-      margin: 0 0 20px 0;
-    }
-
-    .lightbox-details .story {
-      font-size: 1.15rem;
-      line-height: 1.75;
-      padding: 16px 20px;
-      border-radius: 12px;
-    }
-
-    .speak-btn {
-      margin-top: 24px;
-      padding: 12px 20px;
-      font-size: 1rem;
-      border-radius: 25px;
-    }
-
-    .lightbox-close {
-      top: 25px;
-      right: 35px;
-      width: 45px;
-      height: 45px;
-      font-size: 30px;
-      background: rgba(255, 255, 255, 0.2);
-    }
-
-    .lightbox-prev, .lightbox-next {
-      top: 50%;
-      width: 55px;
-      height: 55px;
-      font-size: 24px;
-      background: rgba(255, 255, 255, 0.2);
-    }
-
-    .lightbox-prev { left: 20px; }
-    .lightbox-next { right: 20px; }
   }
 </style>
 
-<!-- ⚡ 交互逻辑脚本（包含触屏滑动与语音朗读） -->
+<!-- ⚡ 交互逻辑脚本 -->
 <script define:vars={{ artworks }}>
   let currentIndex = 0;
+
+  const galleryRoot = document.getElementById('galleryRoot');
+  const viewBtns = document.querySelectorAll('.view-btn');
+  const filterBtns = document.querySelectorAll('.filter-btn');
+  const cardWrappers = document.querySelectorAll('.card-wrapper');
 
   const lightbox = document.getElementById('lightbox');
   const lightboxImg = document.getElementById('lightbox-img');
   const lightboxTitle = document.getElementById('lightbox-title');
   const lightboxDate = document.getElementById('lightbox-date');
-  const lightboxAge = document.getElementById('lightbox-age');
+  const lightboxYear = document.getElementById('lightbox-year');
   const lightboxDesc = document.getElementById('lightbox-desc');
   const speakBtn = document.getElementById('speak-btn');
   const imgWrapper = document.getElementById('lightbox-img-wrapper');
+
+  const portraitPosterBtn = document.getElementById('portraitPosterBtn');
+  const landscapePosterBtn = document.getElementById('landscapePosterBtn');
+
+  const portraitPosterModal = document.getElementById('portraitPosterModal');
+  const portraitImg = document.getElementById('portraitImg');
+  const portraitTitle = document.getElementById('portraitTitle');
+  const portraitDesc = document.getElementById('portraitDesc');
+  const portraitDate = document.getElementById('portraitDate');
+  const closePortraitBtn = document.getElementById('closePortraitBtn');
+
+  const landscapePosterModal = document.getElementById('landscapePosterModal');
+  const landscapeImg = document.getElementById('landscapeImg');
+  const landscapeTitle = document.getElementById('landscapeTitle');
+  const landscapeDesc = document.getElementById('landscapeDesc');
+  const landscapeDate = document.getElementById('landscapeDate');
+  const closeLandscapeBtn = document.getElementById('closeLandscapeBtn');
 
   const wrappers = document.querySelectorAll('.image-wrapper');
   const closeBtn = document.querySelector('.lightbox-close');
   const prevBtn = document.querySelector('.lightbox-prev');
   const nextBtn = document.querySelector('.lightbox-next');
+
+  viewBtns.forEach(btn => {
+    btn.addEventListener('click', () => {
+      const viewType = btn.getAttribute('data-view');
+      // 同步所有视图按钮状态（侧边栏和移动端可能同时存在）
+      viewBtns.forEach(b => {
+        if (b.getAttribute('data-view') === viewType) {
+          b.classList.add('active');
+        } else {
+          b.classList.remove('active');
+        }
+      });
+
+      if (viewType === 'grid') {
+        galleryRoot.classList.remove('is-timeline');
+        galleryRoot.classList.add('is-grid');
+      } else {
+        galleryRoot.classList.remove('is-grid');
+        galleryRoot.classList.add('is-timeline');
+      }
+    });
+  });
+
+  filterBtns.forEach(btn => {
+    btn.addEventListener('click', () => {
+      const category = btn.getAttribute('data-filter');
+      // 同步所有分类按钮状态
+      filterBtns.forEach(b => {
+        if (b.getAttribute('data-filter') === category) {
+          b.classList.add('active');
+        } else {
+          b.classList.remove('active');
+        }
+      });
+
+      cardWrappers.forEach(wrapper => {
+        const cardCategory = wrapper.getAttribute('data-category');
+        if (category === 'all' || cardCategory === category) {
+          wrapper.classList.remove('hidden');
+        } else {
+          wrapper.classList.add('hidden');
+        }
+      });
+    });
+  });
+
+  const navItemBtns = document.querySelectorAll('.nav-item-btn');
+  navItemBtns.forEach(btn => {
+    btn.addEventListener('click', () => {
+      const targetMonth = btn.getAttribute('data-target-month');
+      const targetCard = document.querySelector(`.card-wrapper[data-month="${targetMonth}"]`);
+      if (targetCard) {
+        targetCard.scrollIntoView({
+          behavior: 'smooth',
+          block: 'center'
+        });
+        const cardInner = targetCard.querySelector('.card');
+        if (cardInner) {
+          cardInner.style.transition = 'transform 0.3s ease, box-shadow 0.3s ease';
+          cardInner.style.transform = 'scale(1.03)';
+          cardInner.style.boxShadow = '0 0 25px rgba(245, 158, 11, 0.5)';
+          setTimeout(() => {
+            cardInner.style.transform = '';
+            cardInner.style.boxShadow = '';
+          }, 800);
+        }
+      }
+    });
+  });
 
   function stopSpeech() {
     if ('speechSynthesis' in window && window.speechSynthesis.speaking) {
@@ -511,7 +1331,7 @@ import artworks from '../data/artworks.json';
     lightboxImg.src = art.image;
     lightboxTitle.textContent = art.title || '无标题';
     lightboxDate.textContent = art.date || '';
-    lightboxAge.textContent = art.age || '';
+    lightboxYear.textContent = art.year || '';
     lightboxDesc.textContent = art.description ? `"${art.description}"` : '';
     currentIndex = index;
   }
@@ -534,11 +1354,8 @@ import artworks from '../data/artworks.json';
   }
 
   closeBtn.addEventListener('click', closeLightbox);
-
   lightbox.addEventListener('click', (e) => {
-    if (e.target === lightbox) {
-      closeLightbox();
-    }
+    if (e.target === lightbox) closeLightbox();
   });
 
   function showPrev(e) {
@@ -556,7 +1373,42 @@ import artworks from '../data/artworks.json';
   prevBtn.addEventListener('click', showPrev);
   nextBtn.addEventListener('click', showNext);
 
-  // 📱 移动端左右滑动（Swipe）手势监听
+  portraitPosterBtn.addEventListener('click', () => {
+    const art = artworks[currentIndex];
+    if (!art) return;
+    portraitImg.src = art.image;
+    portraitTitle.textContent = art.title;
+    portraitDesc.textContent = art.description ? `"${art.description}"` : '';
+    portraitDate.textContent = art.date;
+    portraitPosterModal.classList.add('active');
+  });
+
+  closePortraitBtn.addEventListener('click', () => {
+    portraitPosterModal.classList.remove('active');
+  });
+
+  portraitPosterModal.addEventListener('click', (e) => {
+    if (e.target === portraitPosterModal) portraitPosterModal.classList.remove('active');
+  });
+
+  landscapePosterBtn.addEventListener('click', () => {
+    const art = artworks[currentIndex];
+    if (!art) return;
+    landscapeImg.src = art.image;
+    landscapeTitle.textContent = art.title;
+    landscapeDesc.textContent = art.description ? `"${art.description}"` : '';
+    landscapeDate.textContent = art.date;
+    landscapePosterModal.classList.add('active');
+  });
+
+  closeLandscapeBtn.addEventListener('click', () => {
+    landscapePosterModal.classList.remove('active');
+  });
+
+  landscapePosterModal.addEventListener('click', (e) => {
+    if (e.target === landscapePosterModal) landscapePosterModal.classList.remove('active');
+  });
+
   let touchStartX = 0;
   let touchEndX = 0;
 
@@ -566,45 +1418,36 @@ import artworks from '../data/artworks.json';
 
   imgWrapper.addEventListener('touchend', (e) => {
     touchEndX = e.changedTouches[0].screenX;
-    handleSwipe();
+    const diff = touchEndX - touchStartX;
+    if (Math.abs(diff) > 50) {
+      if (diff > 0) showPrev();
+      else showNext();
+    }
   }, { passive: true });
 
-  function handleSwipe() {
-    const swipeThreshold = 50; // 触发切换的最小滑动距离（像素）
-    const diff = touchEndX - touchStartX;
-
-    if (Math.abs(diff) > swipeThreshold) {
-      if (diff > 0) {
-        // 向右滑动 -> 上一张
-        showPrev();
-      } else {
-        // 向左滑动 -> 下一张
-        showNext();
-      }
-    }
-  }
-
-  // 键盘快捷键支持 (Esc关闭，左右方向键无缝切换)
   document.addEventListener('keydown', (e) => {
-    if (lightbox.classList.contains('active')) {
-      if (e.key === 'Escape') closeLightbox();
-      if (e.key === 'ArrowLeft') showPrev();
-      if (e.key === 'ArrowRight') showNext();
+    const anyModalActive = portraitPosterModal.classList.contains('active') ||
+                           landscapePosterModal.classList.contains('active');
+    if (lightbox.classList.contains('active') || anyModalActive) {
+      if (e.key === 'Escape') {
+        if (portraitPosterModal.classList.contains('active')) portraitPosterModal.classList.remove('active');
+        else if (landscapePosterModal.classList.contains('active')) landscapePosterModal.classList.remove('active');
+        else closeLightbox();
+      }
+      if (e.key === 'ArrowLeft' && !anyModalActive) showPrev();
+      if (e.key === 'ArrowRight' && !anyModalActive) showNext();
     }
   });
 
-  // 🔊 语音朗读核心逻辑
   speakBtn.addEventListener('click', () => {
     if (!('speechSynthesis' in window)) {
       alert('您的浏览器暂不支持语音朗读功能');
       return;
     }
-
     if (window.speechSynthesis.speaking) {
       stopSpeech();
       return;
     }
-
     const textToSpeak = lightboxDesc.textContent;
     if (!textToSpeak) return;
 
@@ -617,13 +1460,7 @@ import artworks from '../data/artworks.json';
       speakBtn.classList.add('playing');
       speakBtn.textContent = '⏹️ 停止朗读';
     };
-
-    utterance.onend = () => {
-      speakBtn.classList.remove('playing');
-      speakBtn.textContent = '🔊 朗读故事';
-    };
-
-    utterance.onerror = () => {
+    utterance.onend = utterance.onerror = () => {
       speakBtn.classList.remove('playing');
       speakBtn.textContent = '🔊 朗读故事';
     };
